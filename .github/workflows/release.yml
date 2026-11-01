@@ -79,10 +79,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y nsis
       # The certificate signs the app; the notary profile, in mygo.json,
       # notarizes its disk image. Both go in a keychain of the job, made the
-      # default one, where codesign and notarytool look. Only set up when the
-      # signing certificate secret exists; without it the build stays unsigned.
+      # default one, where codesign and notarytool look. Run this only on
+      # macOS; when the MACOS_CERTIFICATE secret is absent, the build stays
+      # unsigned and the step exits cleanly.
       - name: Import the certificate and the notary credentials
-        if: matrix.name == 'macOS' && secrets.MACOS_CERTIFICATE != ''
+        if: matrix.name == 'macOS'
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -90,6 +91,10 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
+          if [ -z "$MACOS_CERTIFICATE" ]; then
+            echo "MACOS_CERTIFICATE secret not set; skipping macOS signing."
+            exit 0
+          fi
           keychain="$RUNNER_TEMP/signing.keychain-db"
           password="$(openssl rand -base64 24)"
           security create-keychain -p "$password" "$keychain"
