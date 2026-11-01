@@ -18,7 +18,7 @@ func TestSongMenuCopies(t *testing.T) {
 
 	a := newTestApp()
 	a.settings = defaultSettings()
-	tr := netease.Track{ID: 1859245776, Name: "宝船", Artists: []netease.Artist{{Name: "DOUDOU"}, {Name: "小明"}}, Duration: 200000}
+	tr := netease.Track{ID: 1859245776, Hash: "b3a52a7a958bf0aed0ebfba2e9a818b7", Name: "宝船", Artists: []netease.Artist{{Name: "DOUDOU"}, {Name: "小明"}}, Duration: 200000}
 	a.pl.Cue([]netease.Track{tr})
 	a.pl.SetLyrics(nil)
 	a.nowPlaying = true
@@ -29,7 +29,7 @@ func TestSongMenuCopies(t *testing.T) {
 	for _, c := range []struct{ item, want string }{
 		{"复制歌名", "宝船"},
 		{"复制歌名和歌手", "宝船 - DOUDOU, 小明"},
-		{"复制链接", "https://music.163.com/song?id=1859245776"},
+		{"复制链接", "https://www.kugou.com/song/#hash=B3A52A7A958BF0AED0EBFBA2E9A818B7"},
 	} {
 		if err := tt.Click("更多"); err != nil {
 			t.Fatal(err)
@@ -54,7 +54,7 @@ func TestSongMenuOnRightClick(t *testing.T) {
 	a.settings = defaultSettings()
 	a.playlists[42] = &netease.Playlist{ID: 42, Name: "飙升榜", Tracks: []netease.Track{
 		{ID: 1, Name: "一张相片", Artists: []netease.Artist{{Name: "林宥嘉"}}, Duration: 200000},
-		{ID: 2, Name: "宝船", Artists: []netease.Artist{{Name: "DOUDOU"}}, Duration: 200000},
+		{ID: 2, Hash: "0a69169202de95aaf24a9944ccf0730d", Name: "宝船", Artists: []netease.Artist{{Name: "DOUDOU"}}, Duration: 200000},
 	}}
 	a.route = route{page: pagePlaylist, id: 42}
 	tt := ui.NewTester(a.view, 1200, 800)
@@ -70,7 +70,7 @@ func TestSongMenuOnRightClick(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if want := "https://music.163.com/song?id=2"; copied != want {
+	if want := "https://www.kugou.com/song/#hash=0A69169202DE95AAF24A9944CCF0730D"; copied != want {
 		t.Errorf("copied %q, want %q", copied, want)
 	}
 	if a.pl.Current() != nil {

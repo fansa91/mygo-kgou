@@ -53,9 +53,9 @@ func (a *app) quietComment(tr *netease.Track, lines []lyrics.Line, loaded bool, 
 	}
 	var hot []*netease.Comment
 	if cs := &a.comments; cs.track == tr.ID {
-		for i := range cs.hot {
-			if n := utf8.RuneCountInString(cs.hot[i].Content); n > 0 && n <= quietRunes {
-				hot = append(hot, &cs.hot[i])
+		for i := range cs.hot.list {
+			if n := utf8.RuneCountInString(cs.hot.list[i].Content); n > 0 && n <= quietRunes {
+				hot = append(hot, &cs.hot.list[i])
 			}
 		}
 	}

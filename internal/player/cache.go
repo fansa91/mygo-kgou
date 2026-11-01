@@ -42,7 +42,9 @@ func cacheKey(id int64, level string) string { return fmt.Sprintf("%d-%s", id, l
 // keepable reports whether a song of level and type ext may be kept: they
 // name its file, so only those known, which keep it in the cache's folder.
 func keepable(level, ext string) bool {
-	return slices.Contains(netease.Levels, level) && (ext == "mp3" || ext == "flac")
+	// What the player can decode is what is worth keeping: MP3, FLAC, and
+	// the ogg the 概念版 serves for a song its MP3 is sold only to members.
+	return slices.Contains(netease.Levels, level) && (ext == "mp3" || ext == "flac" || ext == "ogg")
 }
 
 // lookup returns a song kept at level or a better one, open to read, with

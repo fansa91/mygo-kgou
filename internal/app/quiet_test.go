@@ -30,7 +30,7 @@ func quietApp(pos time.Duration) (*app, netease.Track, []lyrics.Line) {
 		{ID: 2, Content: "从前从前，有个人爱你很久", LikedCount: 31000},
 	}
 	hot[0].User.Nickname, hot[1].User.Nickname = "听众甲", "听众乙"
-	a.comments = commentState{track: tr.ID, loaded: true, hot: hot}
+	a.comments = commentState{track: tr.ID, hot: commentPage{loaded: true, list: hot}}
 	return a, tr, lines
 }
 
@@ -68,7 +68,7 @@ func TestQuietComment(t *testing.T) {
 	}
 	a.settings.HotComments = true
 	// No hot comments, nothing shows.
-	a.comments.hot = nil
+	a.comments.hot.list = nil
 	if cm, _ := a.quietComment(&tr, lines, true, 5*s); cm != nil {
 		t.Errorf("showed %q without hot comments", cm.Content)
 	}

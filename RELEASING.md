@@ -1,60 +1,87 @@
 # Releasing
 
-1. Commit pending work, bring main up to date with origin, and run `go test ./internal/...`. Others push to main too, so a release cut from a stale main leaves out their work:
+The app ships for macOS, Windows and Linux from the `fansa91/mygo-kgou`
+repository. Pushing a tag named `v<version>` (e.g. `v0.1`) runs
+`.github/workflows/release.yml`, which builds the three platforms, signs them
+when the secrets are set, uploads the installers and update files to a release
+of that tag, and then publishes it. Installed apps update to it through the
+`updates.github` of `mygo.json`.
+
+1. Bring `main` up to date and make sure the tests pass:
 
    ```bash
    git pull --rebase origin main
+   go test ./internal/...
    ```
 
-2. Bump `version` in `mygo.json`, and add a `## 0.1.8` section at the top of `CHANGELOG.md` saying, in Chinese, what changed for people using the app since the last release (`git log v0.1.7..HEAD`, after the pull). Commit both in a commit titled just the version, e.g. `0.1.8`. MyGo's updater shows that section in the app's update window, and the release page takes it as its notes; `mygo build` fails without one.
-3. Push main first, and tag only once that push has gone through. Pushing both at once still pushes the tag when main is rejected, and the tag starts a release build of a commit that isn't on main:
+2. Add a `## <version>` section at the top of `CHANGELOG.md` describing, in
+   Chinese, what changed for people using the app since the last release
+   (`git log <last-tag>..HEAD`). The updater shows it in the app's update
+   window, and the release page takes it as its notes; `mygo build` fails
+   without one, and the workflow refuses to release if the section is missing.
+   Do **not** bump `version` in `mygo.json` by hand — the workflow writes it
+   from the tag.
+
+3. Commit the changelog, push `main`, then tag and push the tag:
 
    ```bash
    git push origin main
-   git tag v0.1.8
-   git push origin v0.1.8
+   git tag v0.1
+   git push origin v0.1
    ```
 
-   If main is rejected, pull again, add what came in to the changelog, amend the version commit, test, and push main again before tagging. If a tag went up on the wrong commit anyway, cancel its run, then delete the tag and the draft it made before tagging again:
+   Push `main` first; pushing the tag before `main` is through starts a release
+   build of a commit that isn't on `main`. If a tag went up on the wrong commit,
+   cancel its run, delete the tag and the release it made, then tag again:
 
    ```bash
-   git push origin :refs/tags/v0.1.8
-   gh release delete v0.1.8 --yes
+   git push origin :refs/tags/v0.1
+   gh release delete v0.1 --repo fansa91/mygo-kgou --yes
    ```
 
-4. `.github/workflows/release.yml` builds macOS, Windows and Linux and uploads them to a draft release. Wait for every job to pass:
+4. Wait for the release run to finish. The `draft-release` job makes the draft
+   and the `build` matrix uploads the three platforms; the `publish` job then
+   flips the draft to published:
 
    ```bash
-   gh run watch "$(gh run list --workflow release.yml -L1 --json databaseId -q '.[0].databaseId')" --exit-status
+   gh run watch "$(gh run list --repo fansa91/mygo-kgou --workflow release.yml -L1 --json databaseId -q '.[0].databaseId')" --exit-status
    ```
 
-   If a job fails, don't publish; fix it first.
+   If a job fails, fix it and re-run the workflow; the draft-release job skips
+   making the release when it already exists, so the rebuild just uploads again
+   and the publish job runs once the builds pass.
 
-5. Publish the draft and mark it latest:
+## Secrets the repository needs
 
-   ```bash
-   gh release edit v0.1.8 --draft=false --latest
-   ```
+- `MYGO_UPDATER_PRIVATE_KEY` (required): the Ed25519 private key that signs
+  updates, matching `updates.publicKey` in `mygo.json`. Without it `mygo build
+  -upload` refuses to run, so the builds fail. Set it to the contents of the
+  key generated with `go tool mygo keygen` (keep the key out of the repository).
+- `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `APPLE_ID`,
+  `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` (optional): sign and notarize the macOS
+  disk image. Without them the macOS build stays unsigned and unsigned updates
+  are skipped, but the other platforms build and publish normally.
 
-6. Check the update feed shows the new version:
+## Checking the release
 
-   ```bash
-   curl -sL https://github.com/egoist/mygo-cloudmusic/releases/latest/download/update-darwin-arm64.json
-   ```
+- The published release: https://github.com/fansa91/mygo-kgou/releases
+- The update feed for a platform, e.g. macOS arm64:
 
-7. Deploy the website. It reads the latest release when it's prerendered, so it has to be rebuilt after publishing:
-
-   ```bash
-   cd website && bun run deploy
-   ```
-
-   Then check https://mygo-cloudmusic.egoist.workers.dev/download/ shows the new version.
+  ```bash
+  curl -sL https://github.com/fansa91/mygo-kgou/releases/latest/download/update-darwin-arm64.json
+  ```
 
 ## The speech recognition libraries
 
-Podcast captions run sherpa-onnx, whose libraries the app downloads with the model from the `sherpa-onnx-<version>` release, not from the app's own. They only change with sherpa-onnx's version, in `scripts/sherpa`. Then pack them again, signing the macOS ones with the app's Developer ID (the app's hardened runtime loads no others), commit the `internal/speech/natives.go` it writes, and upload them as a prerelease, which never becomes the latest that updates look for:
+Podcast captions run sherpa-onnx, whose libraries the app downloads with the
+model from the `sherpa-onnx-<version>` release of `fansa91/mygo-kgou`, not from
+the app's own. They only change with sherpa-onnx's version, in
+`scripts/sherpa`. Then pack them again, signing the macOS ones with the app's
+Developer ID (the app's hardened runtime loads no others), commit the
+`internal/speech/natives.go` it writes, and upload them as a prerelease, which
+never becomes the latest that updates look for:
 
 ```bash
 go run ./scripts/sherpa -sign "Developer ID Application: xinyu zeng (GJE9R5VE87)"
-gh release create sherpa-onnx-2.0.1 --prerelease --latest=false build/sherpa/*
+gh release create sherpa-onnx-2.0.1 --repo fansa91/mygo-kgou --prerelease --latest=false build/sherpa/*
 ```

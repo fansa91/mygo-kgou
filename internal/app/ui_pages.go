@@ -406,8 +406,8 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 				}
 				ui.RichText(c, spans...).FontSize(14).SingleLine()
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					if !tr.Playable() {
-						ui.Text(c, "VIP").FontSize(9).FontWeight(800).TextColor(p.accent).Padding(0, 4).Radius(3).Border(1, p.accent.Alpha(0.6))
+					if tr.VIP || !tr.Playable() {
+						vipTag(c, p.accent, "VIP")
 					}
 					a.artistLinks(c, tr, p.muted, p.text).FontSize(12.5).SingleLine().Shrink(1).MinWidth(0)
 					if tr.Reason != "" {

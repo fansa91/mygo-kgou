@@ -2,142 +2,125 @@ package netease
 
 import (
 	"fmt"
-	"net/url"
-	"strconv"
-	"strings"
+
+	"netease-music-mygo/internal/kugou"
 )
 
-// Podcast is a channel of episodes, which NetEase calls a radio.
-type Podcast struct {
-	ID           int64   `json:"id"`
-	Name         string  `json:"name"`
-	PicURL       string  `json:"picUrl"`
-	Description  string  `json:"desc"`
-	Category     string  `json:"category"`
-	DJ           User    `json:"dj"`
-	ProgramCount int     `json:"programCount"`
-	SubCount     int64   `json:"subCount"`
-	PlayCount    float64 `json:"playCount"`
-	Subed        bool    `json:"subed"`    // by the listener signed in
-	RcmdText     string  `json:"rcmdtext"` // a line on why to listen, in lists
-	// LastProgram is the name of its newest episode, in the listener's
-	// subscriptions.
-	LastProgram string `json:"lastProgramName"`
-}
-
-// Program is an episode of a podcast.
-type Program struct {
-	ID          int64       `json:"id"`
-	Name        string      `json:"name"`
-	CoverURL    string      `json:"coverUrl"`
-	Duration    int64       `json:"duration"`   // milliseconds
-	CreateTime  int64       `json:"createTime"` // Unix milliseconds
-	Description string      `json:"description"`
-	MainSong    legacyTrack `json:"mainSong"` // its audio
-}
-
-// Track is the episode as it plays, in a podcast: its audio's ID, which
-// streams, under the episode's name, cover and host.
-func (p *Program) Track(pod *Podcast) Track {
-	cover := p.CoverURL
-	if cover == "" {
-		cover = pod.PicURL
-	}
-	t := Track{
-		ID: p.MainSong.ID, Name: p.Name, Duration: p.Duration,
-		Album:     Album{Name: pod.Name, PicURL: cover},
-		ProgramID: p.ID, PodcastID: pod.ID, Description: p.Description,
-	}
-	if pod.DJ.Nickname != "" {
-		t.Artists = []Artist{{Name: pod.DJ.Nickname}}
-	}
-	return t
-}
+// Podcasts. KuGou has no podcasts; it has long audio, whose albums are
+// shows and whose audios are episodes, so that is what these read.
 
 // PodcastDetail returns a podcast.
 func PodcastDetail(id int64) (*Podcast, error) {
-	var res struct {
-		Data *Podcast `json:"data"`
-	}
-	if err := get("/api/djradio/v2/get", url.Values{"id": {strconv.FormatInt(id, 10)}}, &res); err != nil {
+	c, err := kuGou()
+	if err != nil {
 		return nil, err
 	}
-	if res.Data == nil || res.Data.ID != id {
-		return nil, fmt.Errorf("netease: no podcast %d", id)
+	a, err := kugou.PodcastAlbum(c, id)
+	if err != nil {
+		return nil, err
 	}
-	return res.Data, nil
+	p := toPodcast(*a)
+	if p.ID != id {
+		p.ID = id
+	}
+	return &p, nil
 }
 
 // PodcastPrograms returns limit of a podcast's episodes from offset, the
 // newest first, and whether it has more.
 func PodcastPrograms(id int64, limit, offset int) ([]Program, bool, error) {
-	var res struct {
-		Programs []Program `json:"programs"`
-		More     bool      `json:"more"`
+	c, err := kuGou()
+	if err != nil {
+		return nil, false, err
 	}
-	q := url.Values{"radioId": {strconv.FormatInt(id, 10)}, "limit": {strconv.Itoa(limit)}, "offset": {strconv.Itoa(offset)}, "asc": {"false"}}
-	err := get("/api/dj/program/byradio", q, &res)
-	return res.Programs, res.More, err
+	if limit <= 0 {
+		limit = 30
+	}
+	episodes, more, err := kugou.PodcastEpisodes(c, id, offset/limit+1, limit)
+	if err != nil {
+		return nil, false, err
+	}
+	out := make([]Program, 0, len(episodes))
+	for _, e := range episodes {
+		t := toTrack(e)
+		t.ProgramID = t.ID
+		t.PodcastID = id
+		out = append(out, toProgram(t, id, ""))
+	}
+	return out, more, nil
 }
 
-// RecommendedPodcasts returns the podcasts NetEase picks to listen to.
+// RecommendedPodcasts returns shows to listen to. KuGou's own daily pick is
+// of radio programmes, whose episodes live on a service of their own; the
+// free shelf of audio books is what this app can list and play, so that is
+// what it offers, the most played first.
 func RecommendedPodcasts() ([]Podcast, error) {
-	var res struct {
-		Podcasts []Podcast `json:"djRadios"`
+	c, err := kuGou()
+	if err != nil {
+		return nil, err
 	}
-	err := get("/api/djradio/recommend/v1", nil, &res)
-	return res.Podcasts, err
+	albums, _, err := kugou.PodcastLibrary(c, 906, 1, 20, true)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Podcast, 0, len(albums))
+	for _, a := range albums {
+		out = append(out, toPodcast(a))
+	}
+	return out, nil
 }
 
 // HotPodcasts returns limit of the most popular podcasts from offset, and
-// whether there are more.
+// whether there are more. The free shelf is what a listener without a
+// subscription can hear, so that is what it counts.
 func HotPodcasts(limit, offset int) ([]Podcast, bool, error) {
-	var res struct {
-		Podcasts []Podcast `json:"djRadios"`
-		HasMore  bool      `json:"hasMore"`
+	c, err := kuGou()
+	if err != nil {
+		return nil, false, err
 	}
-	q := url.Values{"limit": {strconv.Itoa(limit)}, "offset": {strconv.Itoa(offset)}}
-	err := get("/api/djradio/hot/v1", q, &res)
-	return res.Podcasts, res.HasMore, err
+	if limit <= 0 {
+		limit = 30
+	}
+	albums, more, err := kugou.PodcastLibrary(c, 906, offset/limit+1, limit, true)
+	if err != nil {
+		return nil, false, err
+	}
+	out := make([]Podcast, 0, len(albums))
+	for _, a := range albums {
+		out = append(out, toPodcast(a))
+	}
+	return out, more, nil
 }
 
-func programThread(id int64) string { return "A_DJ_1_" + strconv.FormatInt(id, 10) }
+// SubscribedPodcasts returns the podcasts the listener follows. KuGou's long
+// audio has no subscription to read: a listener saves an album to a playlist.
+func SubscribedPodcasts() ([]Podcast, error) {
+	return nil, ErrUnsupported
+}
+
+// SubscribePodcast subscribes the listener to a podcast, or unsubscribes
+// them. Long audio has nothing to subscribe to.
+func SubscribePodcast(id int64, subscribe bool) error {
+	return ErrUnsupported
+}
 
 // LikeProgram likes an episode for the listener, or unlikes it.
 func LikeProgram(id int64, like bool) error {
-	path := "/api/resource/unlike"
-	if like {
-		path = "/api/resource/like"
+	c, err := kuGou()
+	if err != nil {
+		return err
 	}
-	return eapiOK(path, map[string]any{"threadId": programThread(id)})
+	_ = c
+	return ErrUnsupported
 }
 
-// ProgramsLiked returns which of the episodes ids the listener likes.
-// NetEase lists no episodes a listener likes, but answers of each whether
-// they do.
+// ProgramsLiked reports which of the episodes the listener liked, by number.
 func ProgramsLiked(ids []int64) (map[int64]bool, error) {
-	var res struct {
-		Code int `json:"code"`
-		Data []struct {
-			ID    int64 `json:"resourceId"`
-			Liked bool  `json:"liked"`
-		} `json:"data"`
-	}
-	list := make([]string, len(ids))
-	for i, id := range ids {
-		list[i] = strconv.FormatInt(id, 10)
-	}
-	// Resource type 1 is an episode, whose thread is A_DJ_1.
-	data := map[string]any{"resourceType": "1", "resourceIds": "[" + strings.Join(list, ",") + "]"}
-	if err := eapiPost("/api/resource/commentInfo/list", data, &res); err != nil {
+	if _, err := kuGou(); err != nil {
 		return nil, err
 	}
-	if res.Code != 200 {
-		return nil, fmt.Errorf("netease: episodes liked: code %d", res.Code)
-	}
-	liked := make(map[int64]bool, len(res.Data))
-	for _, d := range res.Data {
-		liked[d.ID] = d.Liked
-	}
-	return liked, nil
+	// Nothing to ask: an episode's like is not something KuGou keeps.
+	return map[int64]bool{}, nil
 }
+
+func programThread(id int64) string { return "A_DJ_1_" + fmt.Sprint(id) }

@@ -1,21 +1,19 @@
 {
-  "name": "MyGo 云音乐",
-  "identifier": "dev.egoist.cloudmusic",
-  "slug": "mygo-cloudmusic",
-  "version": "0.1.24",
+  "name": "酷狗云音乐",
+  "identifier": "dev.mygo.kgou",
+  "slug": "mygo-kgou",
+  "version": "0.1",
   "out": "build",
+  "icon": "resources/icon.png",
   "updates": {
-    "publicKey": "WzJsOGNIuf6mcEqo5ff8jub+NoQQOEk4JXreLPYjgyQ=",
-    "github": "egoist/mygo-cloudmusic"
+    "publicKey": "Gbf4miPDKnkc/bu85squlxbtsRSiw9FAEYebZ7+R4a0=",
+    "github": "fansa91/mygo-kgou"
   },
   "macos": {
-    "icon": "icon/AppIcon.icon",
-    "minimumSystemVersion": "13.0",
-    "signingIdentity": "Developer ID Application: xinyu zeng (GJE9R5VE87)",
-    "notarize": { "keychainProfile": "notary" }
+    "minimumSystemVersion": "13.0"
   },
   "linux": {
-    "comment": "第三方网易云音乐桌面客户端",
+    "comment": "第三方酷狗音乐桌面客户端",
     "categories": ["AudioVideo", "Audio", "Player"],
     "webview": false
   }

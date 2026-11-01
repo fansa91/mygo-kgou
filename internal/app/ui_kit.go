@@ -114,6 +114,14 @@ func roundButton(c *ui.Context, size float32, color ui.Color, label string) ui.E
 }
 
 // pillButton is a rounded button with an icon and a label.
+// vipTag marks a row as carrying a subscription — a song sold by it, or the
+// account that holds one. It is small and outlined, so it sits beside a name
+// without pushing it aside.
+func vipTag(c *ui.Context, ink ui.Color, label string) ui.Element {
+	return ui.Text(c, label).FontSize(9).FontWeight(800).TextColor(ink).
+		Padding(0, 5).Radius(3).Border(1, ink.Alpha(0.6)).SingleLine()
+}
+
 func pillButton(c *ui.Context, icon *ui.SVG, label string, bg, fg ui.Color) ui.Element {
 	b := ui.ButtonBase(c).Height(36).PaddingX(18).Gap(8).Radius(999).AlignItems(ui.Center).TextColor(fg)
 	fill := bg

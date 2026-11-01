@@ -6,6 +6,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+
+	"netease-music-mygo/internal/netease"
 )
 
 // openSettings shows the settings window, opening it the first time.
@@ -42,6 +44,9 @@ func (a *app) openSettings() {
 // changed applies the settings everywhere and keeps them.
 func (a *app) changed() {
 	a.settings.save()
+	// The 概念版 changes how every request is signed, so it is told at once
+	// rather than on the next run.
+	netease.SetConcept(a.settings.Concept)
 	a.settings.applyAppearance()
 	if a.notch != nil {
 		a.notch.setEnabled(a.settings.Notch)
@@ -123,7 +128,7 @@ func (a *app) settingsView(c *ui.Context) {
 		}
 
 		group("播放", func() {
-			row("音质", "无损与 Hi-Res 需要黑胶 VIP，没有时播放所能播放的最高音质；下一首歌曲开始生效", func() {
+			row("音质", "按选定的音质播放与缓存；没有该音质时，退到能听到的最高一档。下一首歌曲开始生效", func() {
 				labels := make([]string, len(qualityLevels))
 				chosen := qualityLevels[2].label
 				for i, q := range qualityLevels {
@@ -146,7 +151,22 @@ func (a *app) settingsView(c *ui.Context) {
 					a.changed()
 				}
 			})
-			row("音量均衡", "按网易云音乐测得的响度调整每首歌的音量，让歌曲听起来一样响", func() {
+			row("酷狗概念版", "以酷狗概念版的身份播放：概念版会员可听会员歌曲，账号旁显示概念版标识；切换后需要重新登录", func() {
+				if ui.Switch(c.Key("concept"), &s.Concept).Label("酷狗概念版").Changed() {
+					a.changed()
+					// The mode decides how everything is signed from here
+					// on, including the code the sign-in dialog asks for.
+					netease.SetConcept(s.Concept)
+					// A login belongs to the client it was made as: the other
+					// client's app is refused the token, so the listener signs
+					// in again rather than meeting that as a playback error.
+					if a.profile != nil && a.profile.Lite != s.Concept {
+						a.signOut()
+						a.openLogin()
+					}
+				}
+			})
+			row("音量均衡", "按酷狗音乐测得的响度调整每首歌的音量，让歌曲听起来一样响", func() {
 				if ui.Switch(c.Key("normalize"), &s.Normalize).Label("音量均衡").Changed() {
 					a.pl.SetVolume(a.volume)
 					a.changed()
@@ -230,7 +250,7 @@ func (a *app) settingsView(c *ui.Context) {
 				a.avatar(c, prof.AvatarURL, 36, p.press)
 				ui.Column(c).Grow(1).Gap(2).Children(func() {
 					ui.Text(c, prof.Nickname).FontSize(13.5).FontWeight(600)
-					ui.Text(c, "已登录网易云音乐").FontSize(12).TextColor(p.muted)
+					ui.Text(c, "已登录酷狗音乐").FontSize(12).TextColor(p.muted)
 				})
 				if ui.Button(c.Key("logout"), "退出登录").Clicked() {
 					a.signOut()

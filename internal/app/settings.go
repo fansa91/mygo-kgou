@@ -31,6 +31,11 @@ type settings struct {
 	// Smoke makes the progress bars comets trailing smoke as music plays,
 	// for a few percent of a core: the listener turns it on.
 	Smoke bool `json:"smoke"`
+	// Concept speaks to KuGou as its 概念版 (lite) client: another app, its
+	// own signature and its own terms of listening. An account that holds
+	// the 概念版's subscription hears songs the standard client will not
+	// serve, at standard quality.
+	Concept bool `json:"concept"`
 	// LyricsStage shows lyrics on the stage, Folia's style, in Now
 	// Playing, rather than scrolling.
 	LyricsStage bool `json:"lyricsStage"`
@@ -157,10 +162,12 @@ func (s settings) applyAppearance() {
 	}
 }
 
-// qualityLevel is the stream level NetEase names a quality by.
+// qualityLevel is the stream level KuGou names a quality by. The service
+// serves 128, 320, FLAC and Hi-Res, which is why 较高 and 极高 are the same
+// sound: there is nothing between them to ask for.
 var qualityLevels = []struct{ level, label string }{
 	{"standard", "标准（128k）"},
-	{"higher", "较高（192k）"},
+	{"higher", "较高（320k）"},
 	{"exhigh", "极高（320k）"},
 	{"lossless", "无损（FLAC）"},
 	{"hires", "Hi-Res"},

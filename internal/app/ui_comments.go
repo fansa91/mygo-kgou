@@ -6,33 +6,59 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"netease-music-mygo/internal/kugou"
 	"netease-music-mygo/internal/netease"
 )
 
-// These load a page of a thread's comments, and like a comment or unlike
-// it, with NetEase; tests replace them.
+// These load a page of a thread's comments, like a comment or unlike it,
+// and say whether the service takes a like at all, with NetEase; tests
+// replace them.
 var (
-	threadComments = netease.ThreadComments
-	likeComment    = netease.LikeComment
+	threadComments    = netease.ThreadComments
+	likeComment       = netease.LikeComment
+	commentsLikeable  = netease.CommentsLikeable
 )
 
-// commentState is the comments of the song or episode Now Playing shows:
-// the hot ones, and the latest, loaded a page at a time as they scroll.
-type commentState struct {
-	track   int64
-	thread  string // whose comments they are, as NetEase names it
-	hot     []netease.Comment
-	latest  []netease.Comment
+// commentTabs are the two pages the comments show: the 精彩 ones KuGou ranks
+// first, and the 最新 ones written most recently.
+const (
+	commentTabHot  = "精彩" // most liked first
+	commentTabNew  = "最新" // most recent first
+)
+
+// commentPage is how many comments a page loads, and where it is in them:
+// each commentPage loads its own pages and remembers its own scroll.
+type commentPage struct {
+	list    []netease.Comment
 	total   int
 	more    bool
 	loaded  bool
 	loading bool
 	err     string
+	page    int // the next page to ask for, 1-based
 	scroll  ui.ScrollState
 }
 
-// commentPage is how many comments a page loads.
-const commentPage = 30
+// commentState is the comments of the song or episode Now Playing shows:
+// the 精彩 ones and the 最新 ones, each on its own page with its own place.
+type commentState struct {
+	track  int64
+	thread string // whose comments they are, as NetEase names it
+	hot    commentPage  // 精彩: most liked, paginated on its own
+	latest commentPage  // 最新: most recent, paginated on its own
+	active string       // commentTabHot or commentTabNew
+}
+
+// commentPageSize is how many comments a page loads.
+const commentPageSize = 30
+
+// activePage is the page the comments are showing now: 精彩 or 最新.
+func (cs *commentState) activePage() *commentPage {
+	if cs.active == commentTabNew {
+		return &cs.latest
+	}
+	return &cs.hot
+}
 
 // commentsFor makes the comments those of tr, loading their first page
 // once it changed: Now Playing does it as it shows, for the count on the
@@ -40,46 +66,62 @@ const commentPage = 30
 func (a *app) commentsFor(tr *netease.Track) *commentState {
 	cs := &a.comments
 	if cs.track != tr.ID {
-		*cs = commentState{track: tr.ID, thread: tr.Thread()}
+		*cs = commentState{track: tr.ID, thread: tr.Thread(), active: commentTabHot}
 		a.loadComments()
 	}
 	return cs
 }
 
-// loadComments loads the next page of comments.
+// loadComments loads the next page of the comments' tab that is showing.
 func (a *app) loadComments() {
 	cs := &a.comments
-	if cs.loading {
+	cp := cs.activePage()
+	if cp.loading {
 		return
 	}
-	thread, offset := cs.thread, len(cs.latest)
-	cs.loading, cs.err = true, ""
+	thread, page := cs.thread, cp.page
+	if page == 0 {
+		page = 1
+	}
+	cp.loading, cp.err = true, ""
 	go func() {
-		page, err := threadComments(thread, offset, commentPage)
+		order := kugou.CommentsHot
+		if cs.active == commentTabNew {
+			order = kugou.CommentsNew
+		}
+		pageRes, err := threadComments(thread, order, page, commentPageSize)
 		a.post(func() {
 			if cs.thread != thread {
 				return
 			}
-			cs.loading = false
+			cp.loading = false
 			if err != nil {
-				cs.err = "评论加载失败"
+				cp.err = "评论加载失败"
 				return
 			}
-			cs.loaded = true
-			if offset == 0 {
-				cs.hot = page.Hot
+			cp.loaded = true
+			var list []netease.Comment
+			if cs.active == commentTabHot {
+				list = pageRes.Hot
+			} else {
+				list = pageRes.Latest
 			}
 			// New comments shift the pages: those already shown come again.
-			seen := make(map[int64]bool, len(cs.latest))
-			for _, cm := range cs.latest {
+			seen := make(map[int64]bool, len(cp.list))
+			for _, cm := range cp.list {
 				seen[cm.ID] = true
 			}
-			for _, cm := range page.Latest {
+			for _, cm := range list {
 				if !seen[cm.ID] {
-					cs.latest = append(cs.latest, cm)
+					cp.list = append(cp.list, cm)
 				}
 			}
-			cs.total, cs.more = page.Total, page.More && len(page.Latest) > 0
+			cp.total = pageRes.Total
+			cp.more = pageRes.More
+			if cp.page == 0 {
+				cp.page = 1
+			}
+			cp.page++
 		})
 	}()
 }
@@ -95,10 +137,12 @@ func (a *app) commentsTab() string {
 // commentCount is the count the comments' tab shows: the last song's
 // while the next one's loads, so that it rolls from one to the other.
 func (a *app) commentCount() int {
-	switch cs := &a.comments; {
-	case cs.loaded:
-		return cs.total
-	case cs.err != "":
+	cs := &a.comments
+	cp := cs.activePage()
+	switch {
+	case cp.loaded:
+		return cp.total
+	case cp.err != "":
 		return 0
 	}
 	return a.tabCount.n
@@ -169,12 +213,18 @@ type commentKey struct {
 	id  int64
 }
 
-// commentsPane lists the comments of tr: the hot ones, then the latest,
-// which load on as they scroll into view.
+// commentsPane lists the comments of tr: a 精彩 / 最新 tab switch, and the
+// page that is showing, which loads on as it scrolls into view.
 func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
 	cs := a.commentsFor(tr)
-	if len(cs.hot) == 0 && len(cs.latest) == 0 {
-		if cs.loading || !cs.loaded && cs.err == "" {
+	cp := cs.activePage()
+	// The two tabs: 精彩 and 最新, each keeping its own page and place.
+	ui.Row(c).Padding(12, 12, 6, 12).Gap(10).Children(func() {
+		a.commentTab(c, commentTabHot, cp == &cs.hot)
+		a.commentTab(c, commentTabNew, cp == &cs.latest)
+	})
+	if len(cp.list) == 0 {
+		if cp.loading || !cp.loaded && cp.err == "" {
 			ui.Column(c).Grow(1).Padding(4, 8, 0, 0).Gap(2).Children(func() {
 				s := npShimmer(c)
 				s.text(c, 13, 1.3).Width(56).Margin(18, 12, 6, 12)
@@ -184,8 +234,8 @@ func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
 		}
 		ui.Column(c).Grow(1).Center().Gap(14).Children(func() {
 			switch {
-			case cs.err != "":
-				ui.Text(c, cs.err).FontSize(15).TextColor(white.Alpha(0.5))
+			case cp.err != "":
+				ui.Text(c, cp.err).FontSize(15).TextColor(white.Alpha(0.5))
 				if pillButton(c.Key("retry"), iconComment, "重试", white.Alpha(0.14), white).Clicked() {
 					a.loadComments()
 				}
@@ -197,27 +247,25 @@ func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
 		return
 	}
 	now := c.Now()
-	scroll := ui.Scroll(c.Key("comments")).Grow(1).TrackScroll(&cs.scroll).Padding(4, 8, 48, 0)
+	scroll := ui.Scroll(c.Key("comments")).Grow(1).TrackScroll(&cp.scroll).Padding(4, 8, 48, 0)
 	var end ui.Rect
 	scroll.Children(func() {
 		ui.Column(c).Gap(2).Children(func() {
-			if len(cs.hot) > 0 {
-				commentHeading(c, "精彩评论")
-				for i := range cs.hot {
-					a.commentRow(c.Key(commentKey{true, cs.hot[i].ID}), &cs.hot[i], now)
-				}
+			if cs.active == commentTabHot {
+				commentHeading(c, commentTabHot+"评论")
+			} else {
+				commentHeading(c, commentTabNew+"评论 "+count(cp.total))
 			}
-			commentHeading(c, "最新评论 "+count(cs.total))
-			for i := range cs.latest {
-				a.commentRow(c.Key(commentKey{false, cs.latest[i].ID}), &cs.latest[i], now)
+			for i := range cp.list {
+				a.commentRow(c.Key(commentKey{cs.active == commentTabHot, cp.list[i].ID}), &cp.list[i], now)
 			}
-			if cs.loading {
+			if cp.loading {
 				commentSkeleton(c.Key("more"), npShimmer(c), 2)
 			}
 			ui.Row(c.Key("foot")).Height(56).Center().Children(func() {
 				switch {
-				case cs.loading:
-				case cs.err != "":
+				case cp.loading:
+				case cp.err != "":
 					retry := ui.ButtonBase(c.Key("retry")).Padding(6, 14).Radius(999).Background(white.Alpha(0.1)).Label("重试")
 					retry.Children(func() {
 						ui.Text(c, "加载失败，点按重试").FontSize(12.5).TextColor(white.Alpha(0.7))
@@ -225,7 +273,7 @@ func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
 					if retry.Clicked() {
 						a.loadComments()
 					}
-				case !cs.more:
+				case !cp.more:
 					ui.Text(c, "没有更多评论了").FontSize(12).TextColor(white.Alpha(0.35))
 				}
 			})
@@ -233,8 +281,24 @@ func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
 		})
 	})
 	// The next page, once the foot is within a screen of coming into view.
-	if box := scroll.Bounds(); cs.more && !cs.loading && cs.err == "" && end.W > 0 && end.Y < box.Y+box.H*2 {
+	if box := scroll.Bounds(); cp.more && !cp.loading && cp.err == "" && end.W > 0 && end.Y < box.Y+box.H*2 {
 		a.loadComments()
+	}
+}
+
+// commentTab is one of the two comments pages: 精彩 or 最新.
+func (a *app) commentTab(c *ui.Context, name string, chosen bool) {
+	bg, fg := white.Alpha(0.06), white.Alpha(0.6)
+	if chosen {
+		bg, fg = white.Alpha(0.16), white
+	}
+	b := pillButton(c.Key(name), nil, name, bg, fg)
+	if b.Clicked() {
+		cs := &a.comments
+		if cs.active != name {
+			cs.active = name
+			a.loadComments()
+		}
 	}
 }
 
@@ -273,8 +337,18 @@ func (a *app) commentRow(c *ui.Context, cm *netease.Comment, now time.Time) {
 }
 
 // commentLike is a comment's thumb, with how many liked it, which likes it
-// or unlikes it: in red once liked.
+// or unlikes it: in red once liked. Where the service the app reads takes
+// no like, the thumb stays a count.
 func (a *app) commentLike(c *ui.Context, cm *netease.Comment) {
+	if !commentsLikeable() {
+		if cm.LikedCount > 0 {
+			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, iconThumb).Size(13, 13).TextColor(white.Alpha(0.26))
+				ui.Text(c, count(cm.LikedCount)).FontSize(12).FontFeatures("tnum").TextColor(white.Alpha(0.3))
+			})
+		}
+		return
+	}
 	label, fg := "赞", white.Alpha(0.42)
 	if cm.Liked {
 		label, fg = "取消赞", a.pal.accent
@@ -324,9 +398,9 @@ func (a *app) toggleCommentLike(id int64) {
 	}()
 }
 
-// find returns the comment id, hot or latest, or nil.
+// find returns the comment id, on either page, or nil.
 func (cs *commentState) find(id int64) *netease.Comment {
-	for _, list := range [][]netease.Comment{cs.hot, cs.latest} {
+	for _, list := range [][]netease.Comment{cs.hot.list, cs.latest.list} {
 		for i := range list {
 			if list[i].ID == id {
 				return &list[i]
@@ -337,9 +411,9 @@ func (cs *commentState) find(id int64) *netease.Comment {
 }
 
 // setLiked marks the comment id liked, or not, counting the listener in or
-// out, both where it is hot and where it is latest.
+// out, both where it is 精彩 and where it is 最新.
 func (cs *commentState) setLiked(id int64, like bool) {
-	for _, list := range [][]netease.Comment{cs.hot, cs.latest} {
+	for _, list := range [][]netease.Comment{cs.hot.list, cs.latest.list} {
 		for i := range list {
 			if cm := &list[i]; cm.ID == id && cm.Liked != like {
 				cm.Liked = like

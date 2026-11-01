@@ -3,6 +3,7 @@ package player
 import (
 	"cmp"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -83,6 +84,20 @@ func opened(f *os.File, size int64) *download {
 	return d
 }
 
+// streamClient fetches songs. KuGou's CDNs answer with certificates that
+// name other hosts than the one serving the song — fs.youthandroid2.kugou.com
+// is served a ChinaNetCenter certificate naming chinanetcenter.com and a
+// hundred domains besides, itself not among them — so verifying the name
+// would refuse every song streamed from them. The bytes are public music,
+// and the alternative is no music at all: the stream is read unchecked,
+// while the endpoints this app signs its requests to keep their checks.
+var streamClient = &http.Client{
+	Transport: &http.Transport{
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
+		ForceAttemptHTTP2: true,
+	},
+}
+
 func (d *download) run(ctx context.Context, url string) {
 	defer d.release()
 	finish := func(err error) {
@@ -97,7 +112,7 @@ func (d *download) run(ctx context.Context, url string) {
 		return
 	}
 	req.Header.Set("User-Agent", netease.UserAgent)
-	res, err := http.DefaultClient.Do(req)
+	res, err := streamClient.Do(req)
 	if err != nil {
 		finish(err)
 		return
@@ -324,12 +339,19 @@ type stream interface {
 	source() (*download, *spectrum)
 }
 
-// openStream opens the song dl fetches, MP3 or FLAC, as its first bytes
-// say. An MP3 says nothing of its length: durationMs is it.
+// openStream opens the song dl fetches, MP3, FLAC or Ogg Vorbis, as its first
+// bytes say. An MP3 says nothing of its length: durationMs is it.
 func openStream(dl *download, durationMs int64) (stream, error) {
 	off := id3Size(dl)
-	if dl.waitFor(off+4) >= off+4 && string(dl.peek(off, 4)) == "fLaC" {
-		return openFLACStream(dl)
+	if dl.waitFor(off+4) >= off+4 {
+		switch string(dl.peek(off, 4)) {
+		case "fLaC":
+			return openFLACStream(dl)
+		case "OggS":
+			// What the 概念版 streams, at the qualities its player is
+			// given rather than as MP3: an MP3 decoder reads nothing of it.
+			return openOggStream(dl, durationMs)
+		}
 	}
 	return openMP3Stream(dl, durationMs)
 }
@@ -350,6 +372,8 @@ func openShared(dl *download, durationMs int64) (stream, error) {
 	case *mp3Stream:
 		s.spec, s.drop = nil, dl.release
 	case *flacStream:
+		s.spec, s.drop = nil, dl.release
+	case *oggStream:
 		s.spec, s.drop = nil, dl.release
 	}
 	return s, nil

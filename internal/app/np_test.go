@@ -195,9 +195,9 @@ func TestNowPlayingTabsStayPut(t *testing.T) {
 	}
 	for _, pane := range []int{paneStage, paneLyrics} {
 		a.npPane = pane
-		a.comments.loaded, a.comments.total = true, 0
+		a.comments.hot.loaded, a.comments.hot.total = true, 0
 		settle()
-		a.comments.total = 12345678
+		a.comments.hot.total = 12345678
 		settle()
 		if r, _ := tt.Find("歌词"); r.X != first.X || r.Y != first.Y {
 			t.Errorf("in pane %d, with the count, the 歌词 tab is at %v,%v, was at %v,%v", pane, r.X, r.Y, first.X, first.Y)

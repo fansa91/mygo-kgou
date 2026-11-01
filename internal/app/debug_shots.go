@@ -215,12 +215,17 @@ func init() {
 				return
 			}
 			time.Sleep(5 * time.Second)
-			mygo.RunOnMain(func() {
-				x, y, w, h := windowFrame(a.notch.win.NativeHandle())
-				println("notch frame", int(x), int(y), int(w), int(h))
-			})
+			// The notch is the Mac's; elsewhere it has no window to show.
+			if a.notch != nil && a.notch.win != nil {
+				mygo.RunOnMain(func() {
+					x, y, w, h := windowFrame(a.notch.win.NativeHandle())
+					println("notch frame", int(x), int(y), int(w), int(h))
+				})
+			}
 			shot("1-home", a.win)
-			shot("1-notch-idle", a.notch.win)
+			if a.notch != nil && a.notch.win != nil {
+				shot("1-notch-idle", a.notch.win)
+			}
 			step(0, func() { a.open(route{page: pageCharts}) })
 			time.Sleep(time.Second)
 			shot("2-charts", a.win)

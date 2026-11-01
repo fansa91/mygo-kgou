@@ -139,6 +139,9 @@ func (a *app) userPage(c *ui.Context) {
 				ui.Text(c, "用户").FontSize(12).FontWeight(600).TextColor(p.accent)
 				ui.Text(c, u.Nickname).FontSize(30).FontWeight(800).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
 				ui.Text(c, fmt.Sprintf("%s 关注 · %s 粉丝", count(u.Follows), count(u.Followeds))).FontSize(13).TextColor(p.muted)
+				if own {
+					a.memberRow(c)
+				}
 				if u.Signature != "" {
 					ui.Text(c, u.Signature).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
 				}
@@ -180,6 +183,56 @@ func (a *app) userPage(c *ui.Context) {
 			})
 		}
 	})
+}
+
+// memberRow is what the listener's own account pays for, and the day each
+// subscription runs out. The 概念版 sells two of them — 超级会员 and
+// 豪华会员 — and an account may hold both at once, each ending on its own
+// day, so each is said apart rather than as one date.
+func (a *app) memberRow(c *ui.Context) {
+	prof := a.profile
+	if prof == nil {
+		return
+	}
+	p := a.pal
+	var parts []netease.VIPProduct
+	for _, prod := range prof.Products {
+		if prod.Name != "" {
+			parts = append(parts, prod)
+		}
+	}
+	if len(parts) == 0 {
+		if prof.Label == "" {
+			return
+		}
+		ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+			vipTag(c, p.accent, prof.Label)
+			ui.Text(c, "暂无到期时间").FontSize(12.5).TextColor(p.faint)
+		})
+		return
+	}
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Wrap().Margin(2, 0, 0, 0).Children(func() {
+		for _, prod := range parts {
+			label := prod.Name
+			if day := vipDay(prod.End); day != "" {
+				label += " · " + day + " 到期"
+			}
+			ui.Text(c, label).FontSize(11.5).FontWeight(600).TextColor(p.accent).
+				Padding(3, 9).Radius(999).Background(p.accent.Alpha(0.1)).SingleLine()
+		}
+	})
+}
+
+// vipDay is the day a subscription ends, as its page says it: the services
+// write "2006-01-02 15:04:05", and the hour is no use there.
+func vipDay(stamp string) string {
+	if stamp == "" {
+		return ""
+	}
+	if len(stamp) > 10 {
+		return stamp[:10]
+	}
+	return stamp
 }
 
 // userRow is a user in a list, opening their page.
