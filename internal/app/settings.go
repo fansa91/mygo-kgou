@@ -39,6 +39,13 @@ type settings struct {
 	// LyricsStage shows lyrics on the stage, Folia's style, in Now
 	// Playing, rather than scrolling.
 	LyricsStage bool `json:"lyricsStage"`
+	// LyricsTrans shows the translation of the lyrics beside them, where
+	// the song has one; the listener turns it off to read the original
+	// alone.
+	LyricsTrans bool `json:"lyricsTrans"`
+	// PodcastProgramsReversed lists a 听书's episodes oldest first, rather
+	// than the default newest first; the listener flips it on the 听书 page.
+	PodcastProgramsReversed bool `json:"podcastProgramsReversed"`
 	// StageStyle is how the stage sets its lyrics (stageStyles): empty for
 	// Folia's classic, or the id of another of its visualizers.
 	StageStyle string `json:"stageStyle,omitempty"`
@@ -73,7 +80,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, Normalize: true, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true}
+	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, Normalize: true, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true, LyricsTrans: true}
 }
 
 func settingsPath() (string, error) {

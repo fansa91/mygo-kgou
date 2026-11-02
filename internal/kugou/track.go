@@ -32,6 +32,9 @@ type Track struct {
 	// playlist it was read from; it is what taking the song out again
 	// names. Zero for a song that came from anywhere else.
 	FileID int64
+	// PublishTime is when the episode was published (Unix milliseconds).
+	// Used for long audio (audiobook) episodes.
+	PublishTime int64
 }
 
 // Singer is one of a song's credits: the name it is credited by, and the

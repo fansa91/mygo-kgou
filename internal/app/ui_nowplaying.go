@@ -448,6 +448,48 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 	}
 	lag := a.lyricGlide.step(c, &a.lyricScroll)
 
+	// Whether any line of this song carries a translation or a reading of
+	// itself, which is what the toggle beside them turns on.
+	hasTranslation, hasReading := false, false
+	for _, l := range lines {
+		if l.Translation != "" {
+			hasTranslation = true
+		}
+		if l.Romanized != "" {
+			hasReading = true
+		}
+	}
+	// The setting is the listener's own choice and is kept as it is: a song
+	// that has nothing to show by the toggle does not turn it off for the
+	// songs that do.
+	showable := hasTranslation || hasReading
+	on := a.settings.LyricsTrans && showable
+
+	// Header with translation toggle
+	ui.Row(c).Height(36).PaddingX(8).AlignItems(ui.Center).Children(func() {
+		ui.Spacer(c)
+		label := "翻译"
+		btn := ui.ButtonBase(c.Key("trans-toggle")).Padding(4, 10).Radius(999).FocusRing(false).Label(label)
+		if !showable {
+			btn.Disabled(true)
+		}
+		bg := white.Alpha(0.08)
+		fg := white.Alpha(0.55)
+		if on {
+			bg, fg = white.Alpha(0.18), white
+		} else if btn.Hovered() && showable {
+			bg, fg = white.Alpha(0.12), white.Alpha(0.85)
+		}
+		btn.Background(btn.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond})).TextColor(fg)
+		btn.Children(func() {
+			ui.Text(c, label).FontSize(11.5).FontWeight(600)
+		})
+		if btn.Clicked() && showable {
+			a.settings.LyricsTrans = !a.settings.LyricsTrans
+			a.settings.save()
+		}
+	})
+
 	scroll := ui.Scroll(c.Key("lyrics")).Grow(1).TrackScroll(&a.lyricScroll).Padding(0, 8, h*0.5, 0)
 	dim, quiet := a.quietShown(c, scroll, tr, lines, loaded)
 	if dim > 0.98 {
@@ -455,7 +497,7 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 		scroll.Invisible()
 	}
 	defer a.quietCard(c, dim, h*0.18)
-	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 30, weight: 800, lineHeight: 1.25, quiet: quiet}, nil)
+	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 30, weight: 800, lineHeight: 1.25, quiet: quiet}, a.settings.LyricsTrans, nil)
 }
 
 // linesStyle is how timedLines sets its lines: the size, weight and
@@ -472,7 +514,7 @@ type linesStyle struct {
 // it changes, but none with cur -1 before the first; a click on one seeks
 // to it. The lines are held back by lag, how far the glide to the line
 // lit has still to go (lyricGlide). foot, if set, follows the lines.
-func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, pos time.Duration, cur int, lag float32, st linesStyle, foot func()) {
+func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, pos time.Duration, cur int, lag float32, st linesStyle, showTranslation bool, foot func()) {
 	pl := a.pl
 	var active ui.Element
 	scroll.Children(func() {
@@ -519,8 +561,15 @@ func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, 
 						} else {
 							ui.Text(c, l.Text).FontSize(st.size).FontWeight(st.weight).LineHeight(st.lineHeight).LetterSpacing(-0.4).TextColor(white)
 						}
-						if l.Translation != "" {
-							ui.Text(c, l.Translation).FontSize(17).FontWeight(600).TextColor(white.Alpha(0.7))
+						if showTranslation {
+							// The translation of the line, and how it
+							// reads out, when the song has them.
+							if l.Translation != "" {
+								ui.Text(c, l.Translation).FontSize(17).FontWeight(600).TextColor(white.Alpha(0.7))
+							}
+							if l.Romanized != "" {
+								ui.Text(c, l.Romanized).FontSize(15).FontWeight(500).TextColor(white.Alpha(0.5))
+							}
 						}
 					})
 				})

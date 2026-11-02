@@ -1,8 +1,10 @@
 package kugou
 
 import (
+	"errors"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // KuGou has no podcasts, but it has long audio: audio books and talk shows
@@ -159,7 +161,33 @@ func episodeFrom(l map[string]any, albumID int64) Track {
 	if who := singers(l["authors"]); who != "" {
 		t.Singer = who
 	}
+	// Parse publish date from various possible fields
+	t.PublishTime = parseEpisodeDate(l)
 	return t
+}
+
+// parseEpisodeDate tries multiple date fields KuGou uses for episodes.
+func parseEpisodeDate(l map[string]any) int64 {
+	// Try fields in order of preference
+	for _, key := range []string{"publish_date", "publish_time", "addtime", "upload_time"} {
+		if s := pickString(l, key); s != "" {
+			if ms, err := parseDate(s); err == nil {
+				return ms
+			}
+		}
+	}
+	return 0
+}
+
+// parseDate reads the dates KuGou writes: "2016-07-18", or "2016-07-18
+// 10:00:00".
+func parseDate(s string) (int64, error) {
+	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02", "2006"} {
+		if t, err := time.ParseInLocation(layout, strings.TrimSpace(s), time.Local); err == nil {
+			return t.UnixMilli(), nil
+		}
+	}
+	return 0, errors.New("unsupported date format")
 }
 
 func audioAlbums(list []map[string]any) []AudioAlbum {

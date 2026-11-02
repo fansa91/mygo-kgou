@@ -55,7 +55,7 @@ func (a *app) loadPodcast(id int64) {
 		a.post(func() {
 			d.loading = false
 			if err != nil {
-				d.err, d.thenPlay = "播客加载失败", false
+				d.err, d.thenPlay = "听书加载失败", false
 				return
 			}
 			d.podcast = pod
@@ -194,7 +194,7 @@ func (a *app) podcastPage(c *ui.Context) {
 				a.coverFill(c, pod.PicURL, 600, 14)
 			})
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
-				kind := "播客"
+				kind := "听书"
 				if pod.Category != "" {
 					kind += " · " + pod.Category
 				}
@@ -224,9 +224,39 @@ func (a *app) podcastPage(c *ui.Context) {
 				})
 			})
 		})
-		a.section(c, "节目")
-		for i := range d.programs {
-			a.programRow(c.Key(d.programs[i].ID), d, i, cur)
+		// The episodes' section and, beside its name, the order's switch:
+		// the newest first, or the oldest. The choice stays across restarts.
+		orderLabel := "正序"
+		if a.settings.PodcastProgramsReversed {
+			orderLabel = "倒序"
+		}
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Margin(34, 0, 14, 0).Children(func() {
+			ui.Text(c, "节目").FontSize(19).FontWeight(700).LetterSpacing(-0.3)
+			if len(d.programs) > 1 {
+				btn := ui.ButtonBase(c.Key("sortOrder")).Height(28).Gap(4).PaddingX(10).Radius(8).
+					AlignItems(ui.Center).Label("切换节目排序：" + orderLabel)
+				if btn.Hovered() {
+					btn.Background(p.hover)
+				}
+				btn.Children(func() {
+					ui.Icon(c, iconUpDown).Size(12, 12).TextColor(p.muted)
+					ui.Text(c, orderLabel).FontSize(12).FontWeight(600).TextColor(p.muted)
+				})
+				if btn.Clicked() {
+					a.settings.PodcastProgramsReversed = !a.settings.PodcastProgramsReversed
+					a.settings.save()
+				}
+			}
+		})
+		// The list shows, and its play starts, from its first item shown.
+		if a.settings.PodcastProgramsReversed {
+			for i := len(d.programs) - 1; i >= 0; i-- {
+				a.programRow(c.Key(d.programs[i].ID), d, i, cur)
+			}
+		} else {
+			for i := range d.programs {
+				a.programRow(c.Key(d.programs[i].ID), d, i, cur)
+			}
 		}
 		a.pageFoot(c, &d.page, func() { a.loadPrograms(id) })
 		if d.page.loaded && len(d.programs) == 0 {
@@ -353,7 +383,7 @@ func (a *app) loadPodcastTab() {
 			t.addHot(hot)
 			t.hotPage = paged{loaded: true, more: more && len(hot) > 0}
 			if err2 != nil {
-				t.hotPage.err = "热门播客加载失败"
+				t.hotPage.err = "热门听书加载失败"
 			}
 		})
 	}()
@@ -372,7 +402,7 @@ func (a *app) loadHotPodcasts() {
 		a.post(func() {
 			t.hotPage.loading = false
 			if err != nil {
-				t.hotPage.err = "热门播客加载失败"
+				t.hotPage.err = "热门听书加载失败"
 				return
 			}
 			t.addHot(hot)
@@ -418,13 +448,13 @@ func (a *app) podcastsPage(c *ui.Context) {
 	ui.Scroll(c.Key("podcasts")).TrackScroll(&a.pageScroll).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
 		a.startMark(c)
 		defer a.endMark(c)
-		a.heading(c, "播客", "")
+		a.heading(c, "听书", "")
 		cols := a.columns(c, 150)
 		if !t.hotPage.loaded {
 			s := a.pageShimmer(c)
-			a.section(c, "精选播客").Margin(0, 0, 14, 0)
+			a.section(c, "精选听书").Margin(0, 0, 14, 0)
 			a.playlistCardsSkeleton(c, s, cols, 150, true)
-			a.section(c, "热门播客")
+			a.section(c, "热门听书")
 			a.playlistCardsSkeleton(c, s, cols*2, 150, true)
 			return
 		}
@@ -444,9 +474,9 @@ func (a *app) podcastsPage(c *ui.Context) {
 				}
 			})
 		}
-		list("我的订阅", t.subs)
-		list("精选播客", t.picks)
-		list("热门播客", t.hot)
+list("我的订阅", t.subs)
+	list("精选听书", t.picks)
+	list("热门听书", t.hot)
 		a.pageFoot(c, &t.hotPage, a.loadHotPodcasts)
 	})
 }

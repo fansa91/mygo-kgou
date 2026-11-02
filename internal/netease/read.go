@@ -40,11 +40,16 @@ func pickInt(m map[string]any, keys ...string) int64 {
 	return 0
 }
 
-// clean strips the highlighting a search wraps its matches in.
+// clean strips the highlighting a search wraps its matches in, and .mp3 suffixes.
 func clean(s string) string {
 	s = strings.ReplaceAll(s, "<em>", "")
 	s = strings.ReplaceAll(s, "</em>", "")
-	return strings.TrimSpace(s)
+	s = strings.TrimSpace(s)
+	// Remove .mp3 suffix (case-insensitive)
+	if strings.HasSuffix(strings.ToLower(s), ".mp3") {
+		s = s[:len(s)-4]
+	}
+	return s
 }
 
 // sized asks the image CDN for a picture big enough to show.
@@ -92,11 +97,16 @@ func toPodcast(a kugou.AudioAlbum) Podcast {
 // toProgram turns an episode into the program the app knows: its audio is
 // what plays.
 func toProgram(t Track, podID int64, desc string) Program {
+	createTime := t.PublishTime
+	if createTime == 0 {
+		createTime = time.Now().UnixMilli()
+	}
 	return Program{
 		ID:          t.ID,
 		Name:        t.Name,
 		CoverURL:    t.Album.PicURL,
 		Duration:    t.Duration,
+		CreateTime:  createTime,
 		Description: desc,
 		MainSong: legacyTrack{
 			ID:       t.ID,

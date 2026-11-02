@@ -65,21 +65,25 @@ func SongURL(id int64, level string) (*Stream, error) {
 }
 
 // Lyrics returns a track's words: the plain ones, a translation when KuGou
-// has one, and the word-timed lines the app scrolls by.
-func Lyrics(id int64) (lrc, translation, yrc string, err error) {
+// has one, the NetEase YRC, and the KRC word-timed lyrics.
+//
+// The translation and the pronunciation of a KuGou song ride in the KRC
+// itself, and the lyrics package reads them from there; the LRC and the
+// YRC are left for the songs that carry no KRC.
+func Lyrics(id int64) (lrc, translation, yrc, krc string, err error) {
 	c, err := kuGou()
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	k, ok := app.index.Lookup(id)
 	if !ok {
-		return "", "", "", fmt.Errorf("netease: no song %d", id)
+		return "", "", "", "", fmt.Errorf("netease: no song %d", id)
 	}
 	l, err := kugou.Lyrics(c, k.Hash, k.AlbumAudioID)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
-	return l.LRC, l.Translation, l.KRC, nil
+	return l.LRC, "", "", l.KRC, nil
 }
 
 // Sized asks the image CDN for a picture of n×n pixels.

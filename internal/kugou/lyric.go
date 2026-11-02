@@ -10,10 +10,12 @@ import (
 
 // Lyrics are a song's words: the plain timed lyrics, and the word-timed ones
 // (KRC) the phone itself scrolls by, which this app draws as its "律动" view.
+//
+// The KRC carries the translation and the pronunciation of the lines in a
+// tag of its own; the app reads them from there, in the lyrics package.
 type Lyric struct {
-	LRC         string
-	KRC         string
-	Translation string
+	LRC string
+	KRC string
 }
 
 const lyricsHost = "https://lyrics.kugou.com"

@@ -28,7 +28,7 @@ var searchKinds = []struct {
 	{netease.SearchAlbums, "专辑", "张专辑"},
 	{netease.SearchPlaylists, "歌单", "个歌单"},
 	{netease.SearchUsers, "用户", "位用户"},
-	{netease.SearchPodcasts, "播客", "个播客"},
+	{netease.SearchPodcasts, "听书", "个听书"},
 }
 
 // searchData is what a search found, as far as its pages have loaded.

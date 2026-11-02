@@ -118,6 +118,39 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: go tool mygo build -platform "${{ matrix.platform }}" -upload
+      # Windows ships the app as a zip, not the NSIS installer: zip what the
+      # build made, take the installer and install.ps1 (which downloads and
+      # runs it) off the draft release, and upload the zip. The platform
+      # .tar.gz is the update archive the app updates itself with, so it stays.
+      - name: Ship the Windows build as a zip
+        if: matrix.name == 'Windows'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(jq -r .version mygo.json)"
+          python3 - "$version" <<'PY'
+          import os, sys, zipfile
+          version = sys.argv[1]
+          for arch in ("amd64", "arm64"):
+              src = os.path.join("build", "windows-" + arch)
+              if not os.path.isdir(src):
+                  continue
+              out = "build/mygo-kgou-%s-windows-%s.zip" % (version, arch)
+              with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+                  for name in ("mygo-kgou.exe", "icon.png"):
+                      path = os.path.join(src, name)
+                      if os.path.exists(path):
+                          z.write(path, arcname=name)
+              print("wrote", out)
+          PY
+          for arch in amd64 arm64; do
+            gh release delete-asset "$GITHUB_REF_NAME" "mygo-kgou-setup-${version}-${arch}.exe" \
+              --repo "$RELEASE_REPO" --yes || true
+          done
+          gh release delete-asset "$GITHUB_REF_NAME" install.ps1 \
+            --repo "$RELEASE_REPO" --yes || true
+          gh release upload "$GITHUB_REF_NAME" build/mygo-kgou-"${version}"-windows-*.zip \
+            --repo "$RELEASE_REPO" --clobber
 
   publish:
     needs: build

@@ -69,7 +69,7 @@ func (a *app) programItems(m *ui.Menu, tr *netease.Track) {
 		copyText(tr.URL())
 	}
 	m.Separator()
-	if m.Item("查看播客").Chosen() {
+	if m.Item("查看听书").Chosen() {
 		a.openPage(route{page: pagePodcast, id: tr.PodcastID})
 	}
 }

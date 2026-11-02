@@ -91,12 +91,12 @@ func TestProbe(t *testing.T) {
 			"key": keyFor(strconv.FormatInt(ms, 10), mid, "0", appID),
 		}, nil)
 
-	// 6. 长音频（播客/有声书）每日推荐
-	ask("longaudio daily_recommend 播客推荐", "POST", "", "/longaudio/v1/home_new/daily_recommend",
+	// 6. 长音频（听书/有声书）每日推荐
+	ask("longaudio daily_recommend 听书推荐", "POST", "", "/longaudio/v1/home_new/daily_recommend",
 		map[string]any{"module_id": 1, "size": 10, "page": 1}, nil, nil)
 
 	// 7. 长音频专辑列表
-	ask("longaudio album/list 播客分类", "GET", "", "/longaudio/v1/album/list",
+	ask("longaudio album/list 听书分类", "GET", "", "/longaudio/v1/album/list",
 		map[string]any{"api_ver": 2, "gender": 0, "sort": 0, "tag_id": 906,
 			"free": 1, "status": 0, "page": 1, "page_size": 10, "clientver": 20789}, nil, nil)
 

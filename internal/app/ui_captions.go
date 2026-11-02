@@ -66,7 +66,7 @@ func (a *app) captionsPane(c *ui.Context, tr *netease.Track, h float32) {
 	}
 	lag := a.lyricGlide.step(c, &a.lyricScroll)
 	scroll := ui.Scroll(c.Key("captions")).Grow(1).TrackScroll(&a.lyricScroll).Padding(0, 8, h*0.5, 0)
-	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 24, weight: 700, lineHeight: 1.4}, func() {
+	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 24, weight: 700, lineHeight: 1.4}, false, func() {
 		if cs.work != nil {
 			ui.Text(c, "正在识别…").FontSize(14).FontWeight(600).TextColor(white.Alpha(0.35)).Padding(16, 12)
 		}
@@ -89,7 +89,7 @@ func (a *app) captionsNote(c *ui.Context, text, button string, act func()) {
 func (a *app) modelCard(c *ui.Context) {
 	m := &a.captions.model
 	ui.Column(c).Grow(1).Justify(ui.Center).Gap(14).Padding(0, 12, 48, 12).MaxWidth(440).Children(func() {
-		ui.Text(c, "为播客生成字幕").FontSize(24).FontWeight(800).LetterSpacing(-0.3)
+		ui.Text(c, "为听书生成字幕").FontSize(24).FontWeight(800).LetterSpacing(-0.3)
 		ui.Text(c, fmt.Sprintf("下载语音识别模型（约 %s）后，节目会在本机边播边转写成字幕，像歌词一样随播放滚动，点一句即可跳到那里。音频不会上传。", megabytes(speech.ModelSize()))).
 			FontSize(14).LineHeight(1.6).TextColor(white.Alpha(0.6))
 		if m.downloading {
@@ -136,8 +136,8 @@ func megabytes(n int64) string {
 func (a *app) captionSettings(row func(label, desc string, control func()), c *ui.Context) {
 	m := &a.captions.model
 	s := &a.settings
-	row("播客字幕", "播放节目时在本机转写语音，生成可滚动的字幕；转写时会多用一些电量", func() {
-		if ui.Switch(c.Key("captions"), &s.Captions).Label("播客字幕").Disabled(!a.modelReady()).Changed() {
+	row("听书字幕", "播放节目时在本机转写语音，生成可滚动的字幕；转写时会多用一些电量", func() {
+		if ui.Switch(c.Key("captions"), &s.Captions).Label("听书字幕").Disabled(!a.modelReady()).Changed() {
 			a.changed()
 			a.syncCaptions()
 		}

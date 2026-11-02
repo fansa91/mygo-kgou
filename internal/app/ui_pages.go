@@ -409,6 +409,22 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 					if tr.VIP || !tr.Playable() {
 						vipTag(c, p.accent, "VIP")
 					}
+					// Highest quality badge
+					if hq := tr.HighestQuality(); hq != "" {
+						var badgeColor ui.Color
+						switch hq {
+						case "hires":
+							badgeColor = ui.Hex("#f5d58a") // gold for Hi-Res
+						case "lossless":
+							badgeColor = ui.Hex("#8ecfc9") // teal for lossless
+						case "exhigh", "higher":
+							badgeColor = ui.Hex("#ffb86c") // orange for high
+						default:
+							badgeColor = p.muted
+						}
+						ui.Text(c, netease.QualityLabel(hq)).FontSize(9).FontWeight(800).LetterSpacing(0.5).TextColor(badgeColor).
+							Padding(1, 5).Radius(3).Border(1, badgeColor.Alpha(0.5))
+					}
 					a.artistLinks(c, tr, p.muted, p.text).FontSize(12.5).SingleLine().Shrink(1).MinWidth(0)
 					if tr.Reason != "" {
 						ui.Text(c, tr.Reason).FontSize(10.5).FontWeight(600).TextColor(p.accent).Padding(1, 6).Radius(999).Background(p.accent.Alpha(0.1)).SingleLine()

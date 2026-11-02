@@ -84,7 +84,7 @@ func TestLive(t *testing.T) {
 			continue
 		}
 		fmt.Printf("     url: %d KB %s %.60s\n", u.Size/1024, u.Type, u.URL)
-		lrc, _, yrc, err := Lyrics(s.ID)
+		lrc, _, yrc, _, err := Lyrics(s.ID)
 		if err != nil {
 			fmt.Printf("     lyric: %v\n", err)
 			break
@@ -145,8 +145,8 @@ func lines(s string) int {
 	return n
 }
 
-// TestLivePodcasts walks the podcast page and plays an episode.
-func TestLivePodcasts(t *testing.T) {
+// TestLiveAudiobooks walks the audiobook page and plays an episode.
+func TestLiveAudiobooks(t *testing.T) {
 	if os.Getenv("KG_LIVE") == "" {
 		t.Skip("set KG_LIVE=1 to ask the real service")
 	}
@@ -154,7 +154,7 @@ func TestLivePodcasts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recommended: %v", err)
 	}
-	fmt.Printf("\n播客推荐 %d 个\n", len(pods))
+	fmt.Printf("\n听书推荐 %d 个\n", len(pods))
 	for _, p := range pods[:min(3, len(pods))] {
 		fmt.Printf("  %-26s id=%-12d 期数=%d 分类=%s\n", cut(p.Name, 24), p.ID, p.ProgramCount, p.Category)
 	}

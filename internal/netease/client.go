@@ -333,11 +333,15 @@ func artistsOf(t kugou.Track) []Artist {
 // number derived from its hash.
 func toTrack(t kugou.Track) Track {
 	out := Track{
-		ID:       app.index.Remember(t),
-		Name:     t.Name,
-		Duration: t.Duration,
-		Album:    Album{ID: t.AlbumID, Name: t.Album, PicURL: t.Image},
-		Hash:     t.Hash,
+		ID:          app.index.Remember(t),
+		Name:        t.Name,
+		Duration:    t.Duration,
+		Album:       Album{ID: t.AlbumID, Name: t.Album, PicURL: t.Image},
+		Hash:        t.Hash,
+		HashHigh:    t.HashHigh,
+		HashLossl:   t.HashLossl,
+		HashHires:   t.HashHires,
+		PublishTime: t.PublishTime,
 	}
 	if t.Singer != "" {
 		out.Artists = artistsOf(t)

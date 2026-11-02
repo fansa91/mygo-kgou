@@ -364,8 +364,8 @@ func TestEpisodeOpensPodcast(t *testing.T) {
 	}
 }
 
-// The sidebar's 播客 opens the podcasts tab, which asks for the first page
-// of the most popular podcasts.
+// The sidebar's 听书 opens the podcasts tab, which asks for the first page
+// of the most popular audiobooks.
 func TestPodcastsTabLoads(t *testing.T) {
 	asked := make(chan int, 4)
 	hotPodcasts = func(_, offset int) ([]netease.Podcast, bool, error) {
@@ -378,7 +378,7 @@ func TestPodcastsTabLoads(t *testing.T) {
 	a.settings = defaultSettings()
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
-	if err := tt.Click("播客"); err != nil {
+	if err := tt.Click("听书"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()

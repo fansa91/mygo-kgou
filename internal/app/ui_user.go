@@ -160,11 +160,11 @@ func (a *app) userPage(c *ui.Context) {
 				}
 			})
 		}
-		if own && d.podcastsShown {
-			a.section(c, "订阅的播客")
-			if len(d.podcasts) == 0 {
-				a.empty(c, "还没有订阅播客")
-			}
+if own && d.podcastsShown {
+		a.section(c, "订阅的听书")
+		if len(d.podcasts) == 0 {
+			a.empty(c, "还没有订阅听书")
+		}
 			ui.Grid(c).Columns(a.columns(c, 340)).GapX(8).GapY(4).Margin(0, -12).Children(func() {
 				for i := range d.podcasts {
 					a.podcastRow(c.Key(d.podcasts[i].ID), &d.podcasts[i])

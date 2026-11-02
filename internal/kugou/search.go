@@ -81,11 +81,16 @@ func trackFrom(l map[string]any) Track {
 }
 
 // clean strips the highlighting the search service wraps matches in when its
-// caller asks for it, and the spaces KuGou pads names with.
+// caller asks for it, the spaces KuGou pads names with, and .mp3 suffixes.
 func clean(s string) string {
 	s = strings.ReplaceAll(s, "<em>", "")
 	s = strings.ReplaceAll(s, "</em>", "")
-	return strings.TrimSpace(s)
+	s = strings.TrimSpace(s)
+	// Remove .mp3 suffix (case-insensitive)
+	if strings.HasSuffix(strings.ToLower(s), ".mp3") {
+		s = s[:len(s)-4]
+	}
+	return s
 }
 
 func pickString(m map[string]any, keys ...string) string {

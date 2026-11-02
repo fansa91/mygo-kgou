@@ -1,6 +1,8 @@
 package lyrics
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"regexp"
 	"sort"
 	"strconv"
@@ -13,11 +15,16 @@ import (
 // A Line is a line of timed lyrics, with its translation if any, and
 // when each of its words is sung.
 type Line struct {
-	At          time.Duration
-	End         time.Duration
-	Text        string
+	At   time.Duration
+	End  time.Duration
+	Text string
+	// Translation is the line in another language, as KuGou's KRC files
+	// carry it: the original in the language sung, and this beside it.
 	Translation string
-	Words       []Word
+	// Romanized is the line written in Latin letters, as KuGou's KRC
+	// files give it for songs sung in Chinese or Korean.
+	Romanized string
+	Words     []Word
 	// Timed says the words carry their own times, as NetEase's word-timed
 	// lyrics give them; else they share the line's time evenly.
 	Timed bool
@@ -65,6 +72,12 @@ func parseLRC(lrc string) []Line {
 var (
 	yrcLine = regexp.MustCompile(`^\[(\d+),(\d+)\]`)
 	yrcWord = regexp.MustCompile(`\((\d+),(\d+),\d+\)([^(]*)`)
+
+	// KRC format uses angle brackets for word timing: <start,length,0>word
+	krcLine = regexp.MustCompile(`^\[(\d+),(\d+)\]`)
+	krcWord = regexp.MustCompile(`<(\d+),(\d+),\d+>([^<]*)`)
+	// [language:base64json] tag contains translation data
+	krcLanguage = regexp.MustCompile(`\[language:([A-Za-z0-9+/=]+)\]`)
 )
 
 // parseYRC reads NetEase's word-timed lyrics: a line is
@@ -107,12 +120,123 @@ func parseYRC(yrc string) []Line {
 	return out
 }
 
+// parseKRC reads KuGou's word-timed lyrics (KRC): a line is
+// "[start,length]<start,length,0>word<start,length,0>word..." in milliseconds.
+//
+// A KRC file may also carry a [language:base64json] tag, whose JSON holds one
+// entry per timed line of the body, aligned with it:
+//
+//	content: [{type: 1, language: 0, lyricContent: [["译好的这一行"], ...]}]
+//
+// An entry of type 1 holds the line's translation, as one string; an entry
+// of type 0 holds the line read out in Latin letters, split into the words
+// it is sung in. Both are wanted: the translation is the line in another
+// language, the reading is how the line sounds.
+func parseKRC(krc string) ([]Line, []string) {
+	ms := func(s string) time.Duration {
+		n, _ := strconv.Atoi(s)
+		return time.Duration(n) * time.Millisecond
+	}
+	var lines []Line
+	var translations []string
+	var readings []string
+	krcLines := strings.Split(krc, "\n")
+
+	// First pass: collect the [language:] tag.
+	var langData string
+	for _, raw := range krcLines {
+		if m := krcLanguage.FindStringSubmatch(raw); m != nil {
+			langData = m[1]
+			break
+		}
+	}
+
+	// Decode it: what each line of the song says in another tongue, and
+	// how it reads out loud.
+	if langData != "" {
+		decoded, err := base64.StdEncoding.DecodeString(langData)
+		if err == nil {
+			var lang struct {
+				Content []struct {
+					Type         int       `json:"type"`
+					LyricContent [][]string `json:"lyricContent"`
+				} `json:"content"`
+				Version int `json:"version"`
+			}
+			if json.Unmarshal(decoded, &lang) == nil {
+				for _, c := range lang.Content {
+					switch c.Type {
+					case 1:
+						// The translated line, one string; some songs
+						// split it into several, which are joined.
+						for _, entry := range c.LyricContent {
+							translations = append(translations, strings.TrimSpace(strings.Join(entry, "")))
+						}
+					case 0:
+						// The line read out, one string per word.
+						for _, entry := range c.LyricContent {
+							readings = append(readings, strings.TrimSpace(strings.Join(entry, "")))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Second pass: parse KRC lines.
+	//
+	// What the tag holds is aligned with the timed lines of the body by
+	// position, so the position of each line in the body is kept as it is
+	// read: a line that carries no words is left out of the result, and
+	// counting only the lines kept would shift everything after it.
+	body := 0
+	for _, raw := range krcLines {
+		m := krcLine.FindStringSubmatch(raw)
+		if m == nil {
+			continue
+		}
+		l := Line{At: ms(m[1]), Timed: true}
+		l.End = l.At + ms(m[2])
+		if body < len(translations) {
+			l.Translation = translations[body]
+		}
+		if body < len(readings) {
+			l.Romanized = readings[body]
+		}
+		body++
+		for _, w := range krcWord.FindAllStringSubmatch(raw[len(m[0]):], -1) {
+			start := ms(w[1])
+			word := Word{Text: w[3], Start: start, End: start + ms(w[2])}
+			if strings.TrimSpace(word.Text) == "" {
+				if n := len(l.Words); n > 0 {
+					l.Words[n-1].Text += " "
+				}
+				continue
+			}
+			l.Words = append(l.Words, word)
+		}
+		for _, w := range l.Words {
+			l.Text += w.Text
+		}
+		l.Text = strings.TrimSpace(l.Text)
+		if l.Text != "" {
+			lines = append(lines, l)
+		}
+	}
+	sort.SliceStable(lines, func(i, j int) bool { return lines[i].At < lines[j].At })
+	return lines, translations
+}
+
 // Build makes the lines to show from what NetEase serves: the
 // word-timed lyrics where there are some, else the timed lines, with the
 // translation of each.
-func Build(lrc, translation, yrc string) []Line {
+// If krc is provided, it takes precedence over yrc and lrc for word-timed display.
+func Build(lrc, translation, yrc, krc string) []Line {
 	var lines []Line
-	if yrc != "" {
+	if krc != "" {
+		lines, _ = parseKRC(krc)
+	}
+	if len(lines) == 0 && yrc != "" {
 		lines = parseYRC(yrc)
 	}
 	if len(lines) == 0 {
@@ -130,8 +254,9 @@ func Build(lrc, translation, yrc string) []Line {
 			lines[i].Words = SpreadWords(lines[i].Text, lines[i].At, end)
 		}
 	}
-	// Translations go to the line nearest their time: word-timed lines
-	// start a little off the timed lines the translation follows.
+	// Fallback: a translation that came apart from the lyrics, matched to
+	// the line sung at the same time. A line that already has one keeps
+	// it, which is what the KRC's own translation is for.
 	for _, t := range parseLRC(translation) {
 		if t.Text == "" {
 			continue
@@ -156,7 +281,7 @@ func Build(lrc, translation, yrc string) []Line {
 // mergeLyrics pairs timed lines with their translations, without words'
 // own times.
 func mergeLyrics(lrc, translation string) []Line {
-	return Build(lrc, translation, "")
+	return Build(lrc, translation, "", "")
 }
 
 // SpreadWords splits text into words, each Chinese, Japanese or Korean

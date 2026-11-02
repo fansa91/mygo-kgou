@@ -140,6 +140,15 @@ func (a *app) boot() {
 func (a *app) signedIn(prof *netease.Profile) {
 	debugLog("signedIn %+v", prof)
 	a.profile = prof
+	// If there is a profile, sync the 概念版 flag with the actual account
+	// type so the UI button reflects whether this account is a 概念版 account,
+	// without requiring the user to manually toggle the switch every time.
+	if prof != nil {
+		a.settings.Concept = prof.Lite
+		if err := a.settings.save(); err != nil {
+			debugLog("failed to save concept setting: %v", err)
+		}
+	}
 	// Playback picks up where it was left, once the session that lets
 	// the listener play their songs is back.
 	a.restoreSession()

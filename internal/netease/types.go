@@ -33,10 +33,17 @@ type Track struct {
 	ProgramID   int64  `json:"programId,omitempty"`
 	PodcastID   int64  `json:"podcastId,omitempty"`
 	Description string `json:"description,omitempty"`
-	// Hash is the file KuGou plays the song from, which its page is named
-	// by. The number the app calls the song cannot be turned back into it,
-	// so it is kept beside it where a song is copied as a link.
+	// Hash is the file KuGou plays the song from (standard 128kbps).
 	Hash string `json:"hash,omitempty"`
+	// HashHigh is the 320kbps hash.
+	HashHigh string `json:"hashHigh,omitempty"`
+	// HashLossl is the lossless/FLAC hash.
+	HashLossl string `json:"hashLossl,omitempty"`
+	// HashHires is the highest quality (Hi-Res) hash.
+	HashHires string `json:"hashHires,omitempty"`
+	// PublishTime is when the episode was published (Unix milliseconds).
+	// Used for podcast/audiobook episodes.
+	PublishTime int64 `json:"publishTime,omitempty"`
 	// VIP marks a song that is sold by subscription. It is apart from
 	// playability on purpose: the 概念版 may play one at standard quality,
 	// and the row still says why it is not on the free tier.
@@ -66,6 +73,40 @@ func (t *Track) Playable() bool {
 		return t.Privilege.St >= 0 && t.Privilege.Pl > 0
 	}
 	return t.Fee != 1 && t.Fee != 4
+}
+
+// HighestQuality returns the highest quality level this track has a hash for.
+// Levels from low to high: standard (128), higher (320), exhigh (320), lossless (FLAC), hires (Hi-Res).
+func (t *Track) HighestQuality() string {
+	if t.HashHires != "" {
+		return "hires"
+	}
+	if t.HashLossl != "" {
+		return "lossless"
+	}
+	if t.HashHigh != "" {
+		return "exhigh"
+	}
+	if t.Hash != "" {
+		return "standard"
+	}
+	return ""
+}
+
+// QualityLabel returns the display label for a quality level.
+func QualityLabel(level string) string {
+	switch level {
+	case "hires":
+		return "Hi-Res"
+	case "lossless":
+		return "无损"
+	case "exhigh", "higher":
+		return "高品"
+	case "standard":
+		return "标准"
+	default:
+		return ""
+	}
 }
 
 // Length is how long the track plays.
