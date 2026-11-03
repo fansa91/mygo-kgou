@@ -3,6 +3,7 @@ package lyrics
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -158,7 +159,7 @@ func parseKRC(krc string) ([]Line, []string) {
 		if err == nil {
 			var lang struct {
 				Content []struct {
-					Type         int       `json:"type"`
+					Type         int        `json:"type"`
 					LyricContent [][]string `json:"lyricContent"`
 				} `json:"content"`
 				Version int `json:"version"`
@@ -276,6 +277,44 @@ func Build(lrc, translation, yrc, krc string) []Line {
 		}
 	}
 	return lines
+}
+
+// LRC formats lines as LRC, for a song's file: each line timed, and, where
+// the song has a translation, the translated line right after it under the
+// same time, so a player that reads the tag shows the song in both
+// languages, one line after the other.
+func LRC(lines []Line) string {
+	var b strings.Builder
+	for _, l := range lines {
+		text := strings.TrimSpace(l.Text)
+		translation := strings.TrimSpace(l.Translation)
+		if text == "" && translation == "" {
+			continue
+		}
+		stamp := lrcStamp(l.At)
+		if text != "" {
+			b.WriteString(stamp)
+			b.WriteString(text)
+			b.WriteString("\n")
+		}
+		// A translation that repeats the line, as one in the same language
+		// does, would show it twice.
+		if translation != "" && translation != text {
+			b.WriteString(stamp)
+			b.WriteString(translation)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// lrcStamp formats a time as LRC keeps it: [mm:ss.xx].
+func lrcStamp(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	cs := int64(d / (10 * time.Millisecond))
+	return fmt.Sprintf("[%02d:%02d.%02d]", cs/6000, cs/100%60, cs%100)
 }
 
 // mergeLyrics pairs timed lines with their translations, without words'

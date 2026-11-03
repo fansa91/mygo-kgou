@@ -170,3 +170,24 @@ func TestIsCredit(t *testing.T) {
 		}
 	}
 }
+
+// LRC writes the lines a file is tagged with, each translation on the line
+// after the one it translates, under the same time.
+func TestLRC(t *testing.T) {
+	lines := []Line{
+		{At: 0, Text: "作词 : 林夕"},
+		{At: 12*time.Second + 340*time.Millisecond, Text: "晴天", Translation: "A sunny day"},
+		// A translation that repeats the line, as one in the same language
+		// would, is not written twice.
+		{At: 20 * time.Second, Text: "好", Translation: "好"},
+		// Neither a word nor its translation: nothing to show.
+		{At: 25 * time.Second},
+	}
+	want := "[00:00.00]作词 : 林夕\n" +
+		"[00:12.34]晴天\n" +
+		"[00:12.34]A sunny day\n" +
+		"[00:20.00]好\n"
+	if got := LRC(lines); got != want {
+		t.Errorf("LRC:/n%q/nwant:/n%q", got, want)
+	}
+}

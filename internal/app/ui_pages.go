@@ -348,6 +348,7 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 	// Rows out of view are not built, their marks with them: a list
 	// scrolled away from its start or end has content under the bars.
 	a.underTop, a.underBottom = true, true
+	a.selectTracks = tracks
 	rows := len(tracks) + 1 + len(footer)
 	ui.List(c.Key(a.route), &a.trackList, rows, func(i int) {
 		if i == 0 {
@@ -367,6 +368,8 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 		i--
 		tr := &tracks[i]
 		playing := cur != nil && cur.ID == tr.ID
+		selecting := a.selecting
+		checked := selecting && a.selected[tr.ID] != nil
 		row := ui.ButtonBase(c.Key(tr.ID)).Height(54).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
 			ContextMenu(a.songItems(tr, pid))
 		hovered := row.Hovered()
@@ -374,6 +377,8 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 		switch {
 		case playing:
 			bg = p.accent.Alpha(0.09)
+		case checked:
+			bg = p.accent.Alpha(0.05)
 		case hovered:
 			bg = p.hover
 		}
@@ -384,6 +389,8 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 		row.Children(func() {
 			ui.Box(c).Width(26).Center().Children(func() {
 				switch {
+				case selecting:
+					a.selectMark(c, tr)
 				case playing:
 					a.nowPlayingBars(c)
 				case hovered && tr.Playable():
@@ -449,8 +456,18 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 			})
 			ui.Text(c, clock(tr.Length())).FontSize(12.5).FontFeatures("tnum").TextColor(p.faint).Width(44).TextAlign(ui.End)
 		})
-		if row.Clicked() && tr.Playable() {
-			a.pl.PlayQueue(tracks, i)
+		if row.Clicked() {
+			if a.selecting {
+				if row.ClickModifiers()&ui.Shift != 0 && a.selectAnchor >= 0 {
+					a.rangeSelect(a.selectAnchor, i)
+				} else {
+					a.toggleSelect(tr)
+				}
+				a.selectAnchor = i
+				a.redraw()
+			} else if tr.Playable() {
+				a.pl.PlayQueue(tracks, i)
+			}
 		}
 	}).Grow(1).Padding(top+pageGap, pagePad-12, bottom+32, pagePad-12).ScrollbarInsets(top, 0, bottom, 0)
 }

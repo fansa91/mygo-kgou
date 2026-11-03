@@ -205,6 +205,55 @@ if a.captionsShown() {
 			})
 		})
 
+		group("下载", func() {
+			row("下载位置", a.downloadDir(), func() {
+				if ui.Button(c.Key("download-dir"), "选择…").Clicked() {
+					// The dialog blocks, so it opens beside the main thread.
+					go func() {
+						paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+							Title:             "选择下载文件夹",
+							DefaultPath:       a.downloadDir(),
+							ButtonLabel:       "选择",
+							Directory:         true,
+							CreateDirectories: true,
+						})
+						if err != nil || len(paths) == 0 {
+							return
+						}
+						dir := paths[0]
+						a.post(func() {
+							a.settings.DownloadDir = dir
+							a.changed()
+						})
+					}()
+				}
+			})
+			row("命名格式", "可用 {歌名}、{歌手}、{专辑}、{音质}、{时长}，用 / 分子文件夹；留空则用 {歌手} - {歌名}", func() {
+				in := ui.TextInput(c.Key("download-format"), &s.DownloadFormat).
+					Placeholder(defaultDownloadFormat).Label("命名格式").FontSize(13).Width(220)
+				// Kept as it is typed: there is nothing else to apply.
+				in.OnChange(func() { s.save() })
+			})
+			row("下载音质", "下载时请求的音质；没有这一档时，退到能下到的最高一档", func() {
+				labels := make([]string, len(qualityLevels))
+				chosen := "无损（FLAC）"
+				for i, q := range qualityLevels {
+					labels[i] = q.label
+					if q.level == s.DownloadQuality {
+						chosen = q.label
+					}
+				}
+				if ui.Select(c.Key("download-quality"), &chosen, labels).Label("下载音质").Width(150).Changed() {
+					for _, q := range qualityLevels {
+						if q.label == chosen {
+							s.DownloadQuality = q.level
+						}
+					}
+					a.changed()
+				}
+			})
+		})
+
 		group("外观", func() {
 			row("外观", "", func() {
 				modes := []string{"system", "light", "dark"}

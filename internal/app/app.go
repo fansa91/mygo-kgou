@@ -25,6 +25,7 @@ const (
 	pageUser
 	pagePodcast
 	pagePodcasts
+	pageDownloads
 )
 
 type route struct {
@@ -45,6 +46,7 @@ type app struct {
 	art   *artCache
 	pl    *player.Player
 	pal   palette
+	dl    *downloader // the songs on their way to the download folder
 
 	route   route
 	history []route
@@ -85,11 +87,20 @@ type app struct {
 	podcasts   map[int64]*podcastData
 	podcastTab *podcastTab // the podcasts tab's lists
 	trackList  ui.ListState
+	dlList     ui.ListState // the downloads page's list
 	// Where the page and the sidebar are scrolled, kept while Now Playing
 	// covers them, unbuilt.
 	pageScroll ui.ScrollState
 	navScroll  ui.ScrollState
 	scrolled   route // the page trackList and pageScroll are of
+
+	// The list's select mode: which of its songs the listener has marked to
+	// download together, whether the page's list is selecting, the row a
+	// Shift click ranges from, and the list those are drawn from.
+	selecting    bool
+	selectTracks []netease.Track // the list of the page currently shown
+	selected     map[int64]*netease.Track
+	selectAnchor int // -1 for none
 
 	mineCollapsed, savedCollapsed bool
 
@@ -195,6 +206,7 @@ func Run() error {
 		podcasts:   map[int64]*podcastData{},
 		podcastTab: &podcastTab{},
 		searches:   map[route]*searchData{},
+		selected:   map[int64]*netease.Track{},
 		lyricAt:    -1,
 		queueAt:    -1,
 		cacheUsed:  -1,

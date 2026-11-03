@@ -46,6 +46,15 @@ type settings struct {
 	// PodcastProgramsReversed lists a 听书's episodes oldest first, rather
 	// than the default newest first; the listener flips it on the 听书 page.
 	PodcastProgramsReversed bool `json:"podcastProgramsReversed"`
+	// DownloadDir is where downloaded songs are written: empty for the
+	// system's music folder.
+	DownloadDir string `json:"downloadDir,omitempty"`
+	// DownloadFormat names a downloaded file, by the tokens {歌名},
+	// {歌手}, {专辑}, {音质} and {时长}, and folders with a slash.
+	DownloadFormat string `json:"downloadFormat,omitempty"`
+	// DownloadQuality is the level downloads ask for, one of
+	// qualityLevels; empty for the best.
+	DownloadQuality string `json:"downloadQuality,omitempty"`
 	// StageStyle is how the stage sets its lyrics (stageStyles): empty for
 	// Folia's classic, or the id of another of its visualizers.
 	StageStyle string `json:"stageStyle,omitempty"`
@@ -80,7 +89,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, Normalize: true, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true, LyricsTrans: true}
+	return settings{NotchActivity: true, Quality: "exhigh", Appearance: "system", Volume: 0.8, Normalize: true, AppIcon: "dock-and-menubar", CacheMB: 2048, Captions: true, LyricsTrans: true, DownloadFormat: defaultDownloadFormat, DownloadQuality: defaultDownloadQuality}
 }
 
 func settingsPath() (string, error) {

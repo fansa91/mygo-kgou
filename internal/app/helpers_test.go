@@ -10,6 +10,7 @@ func newTestApp() *app {
 		playlists: map[int64]*netease.Playlist{}, loadingPl: map[int64]bool{}, plErr: map[int64]string{},
 		artists: map[int64]*artistData{}, albums: map[int64]*albumData{}, users: map[int64]*userData{},
 		podcasts: map[int64]*podcastData{}, podcastTab: &podcastTab{}, searches: map[route]*searchData{},
+		selected: map[int64]*netease.Track{},
 		lyricAt: -1, queueAt: -1,
 	}
 	a.art = newArtCache(func(func()) {})

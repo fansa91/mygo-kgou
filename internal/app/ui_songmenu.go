@@ -39,6 +39,23 @@ func (a *app) songItems(tr *netease.Track, pid int64) func(m *ui.Menu) {
 		if m.Item("复制链接").Chosen() {
 			copyText(tr.URL())
 		}
+		// Downloading the song to its own file, named and tagged as the
+		// settings say. One here; several at once by marking the list.
+		m.Separator()
+		if m.Item("下载").Chosen() {
+			a.downloads().add([]netease.Track{*tr})
+		}
+		// Marking songs of the list to download them together, where the page
+		// lists songs that can be marked.
+		if a.selectModePages()[a.route.page] {
+			label := "多选"
+			if a.selecting {
+				label = "退出多选"
+			}
+			if m.Item(label).Chosen() {
+				a.toggleSelectMode()
+			}
+		}
 		// Its artists' and album's pages, those NetEase has.
 		linked := tr.Album.ID != 0
 		for _, ar := range tr.Artists {

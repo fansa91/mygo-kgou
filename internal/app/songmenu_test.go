@@ -63,7 +63,7 @@ func TestSongMenuOnRightClick(t *testing.T) {
 	if err := tt.RightClick("宝船"); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := tt.Menu(), []string{"复制歌名", "复制歌名和歌手", "-", "复制链接"}; !slices.Equal(got, want) {
+	if got, want := tt.Menu(), []string{"复制歌名", "复制歌名和歌手", "-", "复制链接", "-", "下载", "多选"}; !slices.Equal(got, want) {
 		t.Fatalf("the menu shows %q, want %q", got, want)
 	}
 	if err := tt.ChooseMenuItem("复制链接"); err != nil {
@@ -75,5 +75,50 @@ func TestSongMenuOnRightClick(t *testing.T) {
 	}
 	if a.pl.Current() != nil {
 		t.Error("the right click played the song")
+	}
+}
+
+// The menu of a list that can be marked starts the select, which turns the
+// list's rows into checkboxes and puts the bar over the player; the menu,
+// opened again, ends it.
+func TestSongMenuSelectsList(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.playlists[42] = &netease.Playlist{ID: 42, Name: "飙升榜", Tracks: []netease.Track{
+		{ID: 1, Name: "一张相片", Artists: []netease.Artist{{Name: "林宥嘉"}}, Duration: 200000},
+		{ID: 2, Hash: "0a69169202de95aaf24a9944ccf0730d", Name: "宝船", Artists: []netease.Artist{{Name: "DOUDOU"}}, Duration: 200000},
+	}}
+	a.route = route{page: pagePlaylist, id: 42}
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+
+	if err := tt.RightClick("宝船"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("多选"); err != nil {
+		t.Fatalf("%v; the menu shows %q", err, tt.Menu())
+	}
+	tt.Frame()
+	if !a.selecting {
+		t.Fatal("the select did not start")
+	}
+	// The bar over the player is there to mark them all.
+	if err := tt.Click("全选"); err != nil {
+		t.Fatalf("%v; the bar is not there", err)
+	}
+	tt.Frame()
+	if got := len(a.selected); got != 2 {
+		t.Errorf("marked %d songs, want 2", got)
+	}
+	// And the menu ends the select.
+	if err := tt.RightClick("宝船"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("退出多选"); err != nil {
+		t.Fatalf("%v; the menu shows %q", err, tt.Menu())
+	}
+	tt.Frame()
+	if a.selecting {
+		t.Error("the select did not end")
 	}
 }

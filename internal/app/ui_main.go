@@ -59,6 +59,7 @@ func (a *app) view(c *ui.Context) {
 				// The bars float over the page, which scrolls under them:
 				// positioned, they paint over it.
 				a.pageTop(c)
+				a.selectBar(c)
 				a.playerBar(c)
 			})
 		})
@@ -185,6 +186,7 @@ func (a *app) sidebar(c *ui.Context) {
 			a.navItem(c, iconRadio, "私人 FM", route{page: pageFM})
 			a.navItem(c, iconCharts, "排行榜", route{page: pageCharts})
 			a.navItem(c, iconPodcast, "听书", route{page: pagePodcasts})
+			a.navItem(c, iconDownload, "下载管理", route{page: pageDownloads})
 			if a.searched.query != "" {
 				a.navItem(c, iconSearch, "搜索结果", a.searched)
 			}
@@ -345,6 +347,13 @@ func (a *app) content(c *ui.Context) {
 	// list, as a page's tabs in its header, opens it as the list builds.
 	if a.scrolled != a.route {
 		a.trackList, a.pageScroll, a.scrolled = ui.ListState{}, ui.ScrollState{}, a.route
+		// Leaving a page drops its select and its list, so the next starts
+		// fresh: the old list's marks would otherwise linger on a page
+		// still loading its own.
+		a.selecting = false
+		a.selected = map[int64]*netease.Track{}
+		a.selectAnchor = -1
+		a.selectTracks = nil
 	}
 	// Pages mark where their content is, as they scroll.
 	a.underTop, a.underBottom = false, false
@@ -371,6 +380,8 @@ func (a *app) content(c *ui.Context) {
 		a.podcastPage(c)
 	case pagePodcasts:
 		a.podcastsPage(c)
+	case pageDownloads:
+		a.downloadsPage(c)
 	}
 }
 
