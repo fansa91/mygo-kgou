@@ -165,12 +165,22 @@ func PlaylistDetail(id int64) (*Playlist, error) {
 	case "cloud", "liked":
 		listid, _ := strconv.ParseInt(ref, 10, 64)
 		r, _ := app.lists.lookup(id)
+		// A list remembered before its collection id was kept has none, and
+		// without it the songs arrive with no qualities. Asking the account
+		// for its lists fills it in, once.
+		if r.GID == "" {
+			r = learnCollectionID(c, id, r, kind, listid)
+		}
 		p := Playlist{ID: id, Name: r.Name, CoverURL: r.Pic, PicURL: r.Pic}
 		if kind == "liked" {
 			p.SpecialType = 5
 			p.Name, p.Description = "我喜欢的音乐", "我喜欢的音乐"
 		}
 		p.Creator.UserID, p.Creator.Nickname = c.UserID, myName()
+		// The cloud list says what the list holds but not what its songs
+		// are, so their qualities come from the playlist read by the name
+		// the public service knows it by — once, for all the pages.
+		qualities := kugou.PlaylistQualities(c, r.GID)
 		for page := 1; page <= 20; page++ {
 			songs, total, err := kugou.ListSongs(c, listid, r.Type, page, 200)
 			if err != nil {
@@ -179,6 +189,7 @@ func PlaylistDetail(id int64) (*Playlist, error) {
 				}
 				break
 			}
+			qualities.Fill(songs)
 			if total > 0 {
 				p.TrackCount = total
 			}
@@ -195,4 +206,24 @@ func PlaylistDetail(id int64) (*Playlist, error) {
 		return &p, nil
 	}
 	return nil, fmt.Errorf("netease: no playlist %d", id)
+}
+
+// learnCollectionID learns the collection id the public playlist service calls one of
+// the listener's lists by, and keeps it beside the list. The account's lists
+// are one request; a failure leaves the list as it was, read without its
+// songs' qualities.
+func learnCollectionID(c *kugou.Client, id int64, r listRef, kind string, listid int64) listRef {
+	lists, err := kugou.MyLists(c)
+	if err != nil {
+		return r
+	}
+	for _, l := range lists {
+		if l.ID != listid || l.CollectionID == "" {
+			continue
+		}
+		app.lists.rememberCloud(kind, listid, r.Type, r.Name, r.Pic, l.CollectionID)
+		r.GID = l.CollectionID
+		return r
+	}
+	return r
 }

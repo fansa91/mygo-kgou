@@ -113,6 +113,88 @@ func LooksLiked(l UserList) bool {
 	return l.Type == 0 && l.ID == 1 && l.Count == 0
 }
 
+// Qualities are the files each song of a playlist was uploaded as. The cloud
+// list says what the listener's playlist holds, but not what its songs are:
+// its rows carry no relate_goods, and read alone every song of one is a
+// 128kbps file, which made a list of FLACs show as all standard. The public
+// playlist service answers the same songs by the playlist's
+// global_collection_id with their qualities, so this reads that once and the
+// caller fills what it read from the cloud.
+type Qualities struct {
+	byAudio map[int64]qualities
+	byHash  map[string]qualities
+}
+
+// qualities are the files a song was uploaded as, by quality.
+type qualities struct{ high, lossl, hires string }
+
+// PlaylistQualities reads a playlist through the public service, by the
+// collection id the cloud list calls it by. A list whose collection id is not
+// known has none, and its songs keep the qualities the cloud sent.
+func PlaylistQualities(c *Client, gid string) Qualities {
+	out := Qualities{byAudio: map[int64]qualities{}, byHash: map[string]qualities{}}
+	if gid == "" {
+		return out
+	}
+	for page := 1; page <= 10; page++ {
+		var res struct {
+			Data struct {
+				Songs []map[string]any `json:"songs"`
+			} `json:"data"`
+		}
+		err := c.send("GET", request{
+			Path: "/pubsongs/v2/get_other_list_file_nofilt",
+			Params: map[string]string{
+				"area_code": "1", "begin_idx": strconv.Itoa((page - 1) * 100),
+				"plat": "1", "type": "1", "mode": "1", "personal_switch": "1",
+				"extend_fields": "relate_goods", "pagesize": "100",
+				"global_collection_id": gid,
+			},
+		}, &res)
+		if err != nil {
+			return out
+		}
+		for _, l := range res.Data.Songs {
+			var t Track
+			for _, g := range maps(l["relate_goods"]) {
+				t.put(strings.ToLower(pickString(g, "hash")), pickInt(g, "level"), pickInt(g, "bitrate"))
+			}
+			if t.HashHigh == "" && t.HashLossl == "" && t.HashHires == "" {
+				continue
+			}
+			q := qualities{high: t.HashHigh, lossl: t.HashLossl, hires: t.HashHires}
+			if id := pickInt(l, "mixsongid", "album_audio_id"); id != 0 {
+				out.byAudio[id] = q
+			}
+			if own := strings.ToLower(pickString(l, "hash", "filehash")); own != "" {
+				out.byHash[own] = q
+			}
+		}
+		if len(res.Data.Songs) < 100 {
+			break
+		}
+	}
+	return out
+}
+
+// Fill gives each of songs the qualities it was uploaded as, where the
+// playlist knew them.
+func (q Qualities) Fill(songs []Track) {
+	for i := range songs {
+		// A song is the album audio it is: the two services number that the
+		// same, while the hashes they hold for it often differ, as a list
+		// remembers the file it was added by and the public list serves the
+		// one it plays now.
+		qual, ok := q.byAudio[songs[i].AlbumAudioID]
+		if !ok || songs[i].AlbumAudioID == 0 {
+			qual, ok = q.byHash[songs[i].Hash]
+		}
+		if ok {
+			songs[i].HashHigh, songs[i].HashLossl, songs[i].HashHires = qual.high, qual.lossl, qual.hires
+		}
+	}
+}
+
 // ListSongs returns a page of one of the listener's own playlists, and how
 // many songs it holds.
 func ListSongs(c *Client, listid int64, typ, page, size int) ([]Track, int, error) {

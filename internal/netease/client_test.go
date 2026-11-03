@@ -141,3 +141,25 @@ func TestCommentsReadTheReplyAndTakeNoLike(t *testing.T) {
 		t.Fatal("KuGou takes no like of a comment")
 	}
 }
+
+// One of the listener's own lists is known by its listid and by the
+// collection id the public service calls it, which is where its songs'
+// qualities come from; a later call that brings no collection id — a rename
+// through an index read before it was kept — leaves the one it has.
+func TestRememberCloudKeepsTheCollectionID(t *testing.T) {
+	x := &listIndex{byID: map[int64]listRef{}}
+	id := x.rememberCloud("cloud", 15, 0, "my days", "pic", "collection_3_1_15_0")
+
+	if r, _ := x.lookup(id); r.GID != "collection_3_1_15_0" {
+		t.Fatalf("the list kept %q, want its collection id", r.GID)
+	}
+	x.rememberCloud("cloud", 15, 0, "改了个名", "pic", "")
+
+	r, _ := x.lookup(id)
+	if r.GID != "collection_3_1_15_0" {
+		t.Errorf("a call without the collection id dropped it: %q", r.GID)
+	}
+	if r.Name != "改了个名" {
+		t.Errorf("the name is %q, want the renamed one", r.Name)
+	}
+}

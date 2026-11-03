@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +75,11 @@ type downloader struct {
 	log     []*downloadTask // everything asked for, for the downloads page
 	active  int
 	ticking time.Time // when the view was last told of the progress
+
+	// albumMu guards albums, which keeps an album's songs from being read
+	// again for every one of them that is downloaded.
+	albumMu sync.Mutex
+	albums  map[int64]*netease.AlbumProfile
 }
 
 // downloadLogMax is how many downloads the page keeps: the oldest that
@@ -83,7 +89,7 @@ const downloadLogMax = 200
 // downloads returns the app's downloader, making it the first time.
 func (a *app) downloads() *downloader {
 	if a.dl == nil {
-		a.dl = &downloader{a: a}
+		a.dl = &downloader{a: a, albums: map[int64]*netease.AlbumProfile{}}
 	}
 	return a.dl
 }
@@ -217,12 +223,15 @@ func (d *downloader) run(t *downloadTask, opts downloadOptions) {
 		return
 	}
 	cover, mime := d.cover(&t.track)
+	year, track, disc := d.albumTags(&t.track)
 	meta := tag.Meta{
 		Title:       t.track.Name,
 		Artist:      t.track.ArtistNames(),
 		Album:       t.track.Album.Name,
 		AlbumArtist: albumArtist(&t.track),
-		Year:        "",
+		Year:        year,
+		Track:       track,
+		Disc:        disc,
 		Lyrics:      d.lyricsOf(&t.track),
 		Cover:       cover,
 		MIME:        mime,
@@ -239,6 +248,99 @@ func (d *downloader) run(t *downloadTask, opts downloadOptions) {
 	t.state = dlDone
 	t.got = max(t.got, st.Size)
 	d.mu.Unlock()
+}
+
+// album reads an album once: the songs of one album are downloaded
+// together, and each needs the same year and its own place on it. A read
+// that failed is not kept, so another song of the album asks again.
+func (d *downloader) album(id int64) (*netease.AlbumProfile, error) {
+	d.albumMu.Lock()
+	p, ok := d.albums[id]
+	d.albumMu.Unlock()
+	if ok {
+		return p, nil
+	}
+	p, err := netease.AlbumDetail(id)
+	if err != nil {
+		return nil, err
+	}
+	d.albumMu.Lock()
+	if d.albums == nil {
+		d.albums = map[int64]*netease.AlbumProfile{}
+	}
+	d.albums[id] = p
+	d.albumMu.Unlock()
+	return p, nil
+}
+
+// albumTags returns the year the song's album came out, the number the song
+// sits at on it and the disc it is on, for the file's tag. Each comes from
+// the song's row where the row knew it; a song whose row did not is read
+// again through its album, which a download costs one request. Whatever
+// cannot be had is left out, and the tag is written anyway.
+func (d *downloader) albumTags(tr *netease.Track) (year, track, disc string) {
+	if tr.ProgramID != 0 {
+		return "", "", "" // an episode is not on an album
+	}
+	year = yearOf(tr.Year)
+	if tr.TrackNo > 0 {
+		track = strconv.Itoa(tr.TrackNo)
+	}
+	if tr.DiscNo > 0 {
+		disc = strconv.Itoa(tr.DiscNo)
+	}
+	// The album is asked only for what the row did not tell, and only when
+	// it has a number to be asked by.
+	if (year != "" && track != "") || tr.Album.ID == 0 {
+		return year, track, disc
+	}
+	p, err := d.album(tr.Album.ID)
+	if err != nil {
+		return year, track, disc
+	}
+	if year == "" && p.PublishTime > 0 {
+		year = time.UnixMilli(p.PublishTime).Format("2006")
+	}
+	if i := trackIndexIn(p.Songs, tr.ID, tr.Name); i >= 0 {
+		if track == "" {
+			track = strconv.Itoa(i + 1)
+		}
+		if disc == "" && p.Songs[i].DiscNo > 0 {
+			disc = strconv.Itoa(p.Songs[i].DiscNo)
+		}
+	}
+	return year, track, disc
+}
+
+// yearOf reads the year out of a publish date as the service sends it,
+// "2006-11-23" or "2006". Anything else is none, a count of seconds among
+// them, so that a tag is never written with a wrong year.
+func yearOf(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) < 4 || (len(s) > 4 && s[4] != '-' && s[4] != '/' && s[4] != '.') {
+		return ""
+	}
+	if _, err := strconv.Atoi(s[:4]); err != nil {
+		return ""
+	}
+	return s[:4]
+}
+
+// trackIndexIn returns where a song sits in its album's list, the first
+// being 0, or -1 when the list does not hold it. The song is looked for by
+// the number the app gave it, which its hash decides, and then by its name.
+func trackIndexIn(songs []netease.Track, id int64, name string) int {
+	for i := range songs {
+		if songs[i].ID == id {
+			return i
+		}
+	}
+	for i := range songs {
+		if name != "" && songs[i].Name == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // lyricsOf returns the song's words for its file's tag, as LRC under the

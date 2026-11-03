@@ -181,6 +181,11 @@ type listRef struct {
 	// the one their hearts go in.
 	Kind string `json:"kind"`
 	Ref  string `json:"ref"` // its collection id, rank id or listid
+	// GID is what the public playlist service calls one of the listener's
+	// own lists. Its cloud list answers what the list holds but not the
+	// files the songs were uploaded as, so the playlist is read once more
+	// by this name to learn their qualities.
+	GID  string `json:"gid,omitempty"`
 	Type int    `json:"type,omitempty"`
 	Name string `json:"name,omitempty"`
 	Pic  string `json:"pic,omitempty"`
@@ -209,13 +214,26 @@ func (x *listIndex) remember(kind, ref, name, pic string) int64 {
 }
 
 // rememberCloud names one of the listener's own playlists, which KuGou knows
-// by a listid and whether it was made here or saved.
-func (x *listIndex) rememberCloud(kind string, listid int64, typ int, name, pic string) int64 {
+// by a listid and whether it was made here or saved, and by the collection id
+// the public service calls it.
+func (x *listIndex) rememberCloud(kind string, listid int64, typ int, name, pic, gid string) int64 {
 	id := kugou.SongID(kind + ":" + strconv.FormatInt(listid, 10))
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	known := x.byID[id]
-	ref := listRef{Kind: kind, Ref: strconv.FormatInt(listid, 10), Type: typ, Name: name, Pic: pic}
+	ref := listRef{Kind: kind, Ref: strconv.FormatInt(listid, 10), Type: typ, Name: name, Pic: pic, GID: gid}
+	// A list remembered before the collection id was kept has none, and the
+	// call that learns it sends no name either: what the caller left out is
+	// taken from what is known, never over in the other direction.
+	if gid == "" && known.Kind == ref.Kind && known.Ref == ref.Ref {
+		ref.GID = known.GID
+		if ref.Name == "" {
+			ref.Name = known.Name
+		}
+		if ref.Pic == "" {
+			ref.Pic = known.Pic
+		}
+	}
 	if known == ref {
 		return id
 	}
@@ -342,6 +360,9 @@ func toTrack(t kugou.Track) Track {
 		HashLossl:   t.HashLossl,
 		HashHires:   t.HashHires,
 		PublishTime: t.PublishTime,
+		Year:        t.Year,
+		TrackNo:     t.TrackNo,
+		DiscNo:      t.DiscNo,
 	}
 	if t.Singer != "" {
 		out.Artists = artistsOf(t)

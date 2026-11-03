@@ -60,14 +60,17 @@ func trackFrom(l map[string]any) Track {
 		Album:        clean(pickString(l, "AlbumName", "album_name", "remark")),
 		Duration:     duration(l),
 		Size:         pickInt(l, "FileSize", "file_size", "filesize", "filesize_128", "size"),
-		Image:        coverOf(l),
-		Hash:         strings.ToLower(pickString(l, "FileHash", "filehash", "hash", "hash_128")),
-		HashHigh:     strings.ToLower(pickString(l, "HQFileHash", "hash_320")),
-		HashLossl:    strings.ToLower(pickString(l, "SQFileHash", "hash_flac", "hash_ape")),
-		HashHires:    strings.ToLower(pickString(l, "ResFileHash", "hash_high", "hash_super")),
-		PayType:      int(pickInt(l, "PayType", "pay_type", "pay_type_128")),
-		Privilege:    int(pickInt(l, "Privilege", "privilege")),
-		Singers:      singersOf(fieldOf(l, "Singers", "singers", "singerinfo", "authors")),
+		// A song's own row carries the date its album came out, which the
+		// tag keeps as its year.
+		Year:      pickString(l, "publish_date", "PublishDate"),
+		Image:     coverOf(l),
+		Hash:      strings.ToLower(pickString(l, "FileHash", "filehash", "hash", "hash_128")),
+		HashHigh:  strings.ToLower(pickString(l, "HQFileHash", "hash_320")),
+		HashLossl: strings.ToLower(pickString(l, "SQFileHash", "hash_flac", "hash_ape")),
+		HashHires: strings.ToLower(pickString(l, "ResFileHash", "hash_high", "hash_super")),
+		PayType:   int(pickInt(l, "PayType", "pay_type", "pay_type_128")),
+		Privilege: int(pickInt(l, "Privilege", "privilege")),
+		Singers:   singersOf(fieldOf(l, "Singers", "singers", "singerinfo", "authors")),
 	}
 	// A song that is sold says so as a fail the purchase would clear.
 	if t.PayType == 0 && pickInt(l, "fail_process", "fail_process_128") == 4 {

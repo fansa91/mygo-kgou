@@ -32,6 +32,9 @@ type Known struct {
 	AlbumID      int64  `json:"album_id"`
 	Name         string `json:"name,omitempty"`
 	Singer       string `json:"singer,omitempty"`
+	Year         string `json:"year,omitempty"`
+	TrackNo      int    `json:"track_no,omitempty"`
+	DiscNo       int    `json:"disc_no,omitempty"`
 }
 
 // Index remembers the songs that have been seen, so a song can be played by
@@ -74,6 +77,15 @@ func (x *Index) Remember(t Track) int64 {
 	if t.Singer != "" {
 		known.Singer = t.Singer
 	}
+	if t.Year != "" {
+		known.Year = t.Year
+	}
+	if t.TrackNo != 0 {
+		known.TrackNo = t.TrackNo
+	}
+	if t.DiscNo != 0 {
+		known.DiscNo = t.DiscNo
+	}
 	if known != x.byID[id] {
 		x.byID[id] = known
 		x.save()
@@ -101,6 +113,9 @@ func (x *Index) Track(id int64) (Track, bool) {
 		AlbumID:      k.AlbumID,
 		Name:         k.Name,
 		Singer:       k.Singer,
+		Year:         k.Year,
+		TrackNo:      k.TrackNo,
+		DiscNo:       k.DiscNo,
 	}, true
 }
 

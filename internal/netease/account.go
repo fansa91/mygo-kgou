@@ -419,7 +419,7 @@ func UserPlaylists(uid int64) (made, saved []Playlist, err error) {
 				Name: "我喜欢的音乐", CoverURL: l.Pic, PicURL: l.Pic,
 				Description: "我喜欢的音乐", SpecialType: 5, TrackCount: l.Count,
 			}
-			p.ID = app.lists.rememberCloud("liked", l.ID, l.Type, "我喜欢的音乐", l.Pic)
+			p.ID = app.lists.rememberCloud("liked", l.ID, l.Type, "我喜欢的音乐", l.Pic, l.CollectionID)
 			p.Creator.UserID, p.Creator.Nickname = c.UserID, myName()
 			made = append([]Playlist{p}, made...)
 			continue
@@ -429,7 +429,7 @@ func UserPlaylists(uid int64) (made, saved []Playlist, err error) {
 		if p.Creator.Nickname == "" {
 			p.Creator.Nickname = myName()
 		}
-		p.ID = app.lists.rememberCloud("cloud", l.ID, l.Type, l.Name, l.Pic)
+		p.ID = app.lists.rememberCloud("cloud", l.ID, l.Type, l.Name, l.Pic, l.CollectionID)
 		if l.Type == 1 {
 			p.Subscribed = true
 			saved = append(saved, p)
@@ -456,7 +456,7 @@ func CreatePlaylist(name string) (*Playlist, error) {
 	}
 	p := &Playlist{Name: name}
 	p.Creator.UserID, p.Creator.Nickname = c.UserID, myName()
-	p.ID = app.lists.rememberCloud("cloud", id, 0, name, "")
+	p.ID = app.lists.rememberCloud("cloud", id, 0, name, "", "")
 	return p, nil
 }
 
@@ -475,7 +475,7 @@ func RenamePlaylist(id int64, name string) error {
 		return err
 	}
 	if r, ok := app.lists.lookup(id); ok {
-		app.lists.rememberCloud(kind, listid, r.Type, name, r.Pic)
+		app.lists.rememberCloud(kind, listid, r.Type, name, r.Pic, r.GID)
 	}
 	return nil
 }

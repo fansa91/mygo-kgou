@@ -44,6 +44,13 @@ type Track struct {
 	// PublishTime is when the episode was published (Unix milliseconds).
 	// Used for podcast/audiobook episodes.
 	PublishTime int64 `json:"publishTime,omitempty"`
+	// Year is when the song's album came out ("2006" or "2006-11-23"),
+	// TrackNo its number on the album and DiscNo the disc it is on; empty
+	// and 0 where the source did not say. The download writes them into the
+	// file's tags.
+	Year    string `json:"year,omitempty"`
+	TrackNo int    `json:"trackNo,omitempty"`
+	DiscNo  int    `json:"discNo,omitempty"`
 	// VIP marks a song that is sold by subscription. It is apart from
 	// playability on purpose: the 概念版 may play one at standard quality,
 	// and the row still says why it is not on the free tier.

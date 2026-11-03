@@ -400,6 +400,7 @@ func trackFromParts(l map[string]any) Track {
 	album, _ := l["album_info"].(map[string]any)
 	rights, _ := l["copyright"].(map[string]any)
 	sale, _ := l["deprecated"].(map[string]any)
+	extend, _ := l["extend"].(map[string]any)
 
 	t := Track{
 		AlbumAudioID: pickInt(base, "album_audio_id"),
@@ -408,12 +409,19 @@ func trackFromParts(l map[string]any) Track {
 		Singer:       clean(pickString(base, "author_name")),
 		Album:        clean(pickString(album, "album_name")),
 		Image:        sized(pickString(album, "cover")),
-		Hash:         strings.ToLower(pickString(info, "hash", "hash_128")),
-		HashHigh:     strings.ToLower(pickString(info, "hash_320")),
-		HashLossl:    strings.ToLower(pickString(info, "hash_flac")),
-		HashHires:    strings.ToLower(pickString(info, "hash_high", "hash_super")),
-		Duration:     pickInt(info, "duration_128", "duration"),
-		Size:         pickInt(info, "filesize_128", "filesize"),
+		// The album's date, where the row carries one; the download asks
+		// the album itself for the rest.
+		Year: pickString(album, "publish_date"),
+		// The song's place in its album: the album service keeps the
+		// number in "extend" as "sort", and the disc as "disc".
+		TrackNo:   int(pickInt(extend, "sort")),
+		DiscNo:    int(pickInt(extend, "disc")),
+		Hash:      strings.ToLower(pickString(info, "hash", "hash_128")),
+		HashHigh:  strings.ToLower(pickString(info, "hash_320")),
+		HashLossl: strings.ToLower(pickString(info, "hash_flac")),
+		HashHires: strings.ToLower(pickString(info, "hash_high", "hash_super")),
+		Duration:  pickInt(info, "duration_128", "duration"),
+		Size:      pickInt(info, "filesize_128", "filesize"),
 		// What the song costs is what its rights say, as it is everywhere
 		// else the service lists songs.
 		PayType:   int(pickInt(sale, "pay_type")),
@@ -626,6 +634,7 @@ func trackFromFile(l map[string]any) Track {
 		Duration:     duration(l),
 		Size:         pickInt(l, "size", "filesize"),
 		Image:        coverOf(l),
+		Year:         pickString(l, "publish_date"),
 		Hash:         strings.ToLower(pickString(l, "hash", "filehash")),
 		PayType:      int(pickInt(l, "feetype", "pay_type")),
 		Privilege:    int(pickInt(l, "privilege")),
@@ -634,24 +643,7 @@ func trackFromFile(l map[string]any) Track {
 	}
 	// A file's qualities are its goods: one per bit rate it was uploaded at.
 	for _, g := range maps(l["relate_goods"]) {
-		hash := strings.ToLower(pickString(g, "hash"))
-		switch rate := pickInt(g, "bitrate"); {
-		case hash == "":
-		case rate >= 1500:
-			if t.HashHires == "" {
-				t.HashHires = hash
-			}
-		case rate >= 900:
-			if t.HashLossl == "" {
-				t.HashLossl = hash
-			}
-		case rate >= 300:
-			if t.HashHigh == "" {
-				t.HashHigh = hash
-			}
-		case t.Hash == "":
-			t.Hash = hash
-		}
+		t.put(strings.ToLower(pickString(g, "hash")), pickInt(g, "level"), pickInt(g, "bitrate"))
 	}
 	// The name comes as the credits read; the singers are given apart.
 	if who := singers(l["singerinfo"]); who != "" {
@@ -660,9 +652,12 @@ func trackFromFile(l map[string]any) Track {
 	if i := strings.Index(t.Name, " - "); i > 0 && t.Singer != "" && strings.Contains(t.Name[:i], t.Singer) {
 		t.Name = clean(t.Name[i+3:])
 	}
-	if t.Album == "" {
-		if info, ok := l["albuminfo"].(map[string]any); ok {
+	if info, ok := l["albuminfo"].(map[string]any); ok {
+		if t.Album == "" {
 			t.Album = clean(pickString(info, "name"))
+		}
+		if t.Year == "" {
+			t.Year = pickString(info, "publish_date")
 		}
 	}
 	return t

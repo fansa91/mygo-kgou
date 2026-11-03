@@ -25,9 +25,11 @@ type Meta struct {
 	Artist      string
 	Album       string
 	AlbumArtist string
-	// Track is the number of the song in its album, and Year the year it
-	// came out in, both as text.
+	// Track is the number of the song in its album, Disc the disc it is on
+	// where the album has more than one, and Year the year it came out in,
+	// all as text.
 	Track string
+	Disc  string
 	Year  string
 	// Lyrics is the song's words as LRC, with the translation of each line
 	// right after it where the song has one.
@@ -130,6 +132,7 @@ func id3v2(m Meta) []byte {
 		{"TALB", m.Album},
 		{"TPE2", m.AlbumArtist},
 		{"TRCK", m.Track},
+		{"TPOS", m.Disc},
 		{"TYER", m.Year},
 	} {
 		frames = append(frames, textFrame(f.id, f.text)...)
@@ -302,6 +305,7 @@ func vorbisComment(m Meta) []byte {
 		{"ALBUM", m.Album},
 		{"ALBUMARTIST", m.AlbumArtist},
 		{"TRACKNUMBER", m.Track},
+		{"DISCNUMBER", m.Disc},
 		{"DATE", m.Year},
 		// The words, timed, under the name players look for; the value may
 		// run over several lines, which the length prefix allows.

@@ -111,7 +111,7 @@ func usltText(t *testing.T, payload []byte) string {
 }
 
 // A tagged MP3 keeps its audio after the new tag, and reads back the words
-// it was tagged with.
+// it was tagged with, its place on the album and the year it came out.
 func TestWriteMP3(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "song.mp3")
@@ -127,7 +127,7 @@ func TestWriteMP3(t *testing.T) {
 	}
 
 	lyrics := "[00:00.00]晴天\n[00:00.00]A sunny day\n"
-	m := Meta{Title: "晴天", Artist: "周杰伦", Album: "叶惠美", Lyrics: lyrics, Cover: jpeg(300, 300), MIME: "image/jpeg"}
+	m := Meta{Title: "晴天", Artist: "周杰伦", Album: "叶惠美", Track: "3", Disc: "1", Year: "2003", Lyrics: lyrics, Cover: jpeg(300, 300), MIME: "image/jpeg"}
 	if err := Write(path, m); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestWriteMP3(t *testing.T) {
 		t.Errorf("the file holds %d tags, want 1", bytes.Count(b, []byte("ID3")))
 	}
 	frames := id3Frames(t, b)
-	for id, want := range map[string]string{"TIT2": "晴天", "TPE1": "周杰伦", "TALB": "叶惠美"} {
+	for id, want := range map[string]string{"TIT2": "晴天", "TPE1": "周杰伦", "TALB": "叶惠美", "TRCK": "3", "TPOS": "1", "TYER": "2003"} {
 		if got := textOf(frames[id]); got != want {
 			t.Errorf("%s: got %q, want %q", id, got, want)
 		}
@@ -177,7 +177,7 @@ func TestWriteFLAC(t *testing.T) {
 	}
 
 	lyrics := "[00:00.00]晴天\n[00:00.00]A sunny day\n"
-	m := Meta{Title: "晴天", Artist: "周杰伦", Album: "叶惠美", Lyrics: lyrics, Cover: png(600, 600), MIME: "image/png"}
+	m := Meta{Title: "晴天", Artist: "周杰伦", Album: "叶惠美", Track: "3", Disc: "1", Year: "2003", Lyrics: lyrics, Cover: png(600, 600), MIME: "image/png"}
 	if err := Write(path, m); err != nil {
 		t.Fatal(err)
 	}
@@ -204,6 +204,13 @@ func TestWriteFLAC(t *testing.T) {
 		}
 		if typ == 4 && !bytes.Contains(out[i+4:i+4+size], []byte("LYRICS="+lyrics)) {
 			t.Errorf("the words are not in the comment: %q", out[i+4:i+4+size])
+		}
+		if typ == 4 {
+			for _, tag := range []string{"TRACKNUMBER=3", "DISCNUMBER=1", "DATE=2003"} {
+				if !bytes.Contains(out[i+4:i+4+size], []byte(tag)) {
+					t.Errorf("%s is not in the comment: %q", tag, out[i+4:i+4+size])
+				}
+			}
 		}
 		if out[i]&0x80 != 0 {
 			break

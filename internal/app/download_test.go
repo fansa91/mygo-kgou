@@ -88,3 +88,40 @@ func TestUniquePath(t *testing.T) {
 		t.Errorf("uniquePath of two taken names: got %q, want song (3).mp3", got)
 	}
 }
+
+// yearOf keeps the year a publish date starts with, and takes nothing from
+// what is not a date, a count of seconds among them, so that no wrong year
+// is written.
+func TestYearOf(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"2003-07-31", "2003"},
+		{"2003", "2003"},
+		{" 2003/07/31 ", "2003"},
+		{"1164288000", ""}, // seconds since the epoch, not a date
+		{"", ""},
+		{"晴天", ""},
+	} {
+		if got := yearOf(c.in); got != c.want {
+			t.Errorf("yearOf(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// trackIndexIn finds a song in its album's list by the number the app gave
+// it, and by its name when the list was read under another hash.
+func TestTrackIndexIn(t *testing.T) {
+	songs := []netease.Track{
+		{ID: 10, Name: "以父之名"},
+		{ID: 11, Name: "晴天"},
+		{ID: 12, Name: "东风破"},
+	}
+	if got := trackIndexIn(songs, 11, "晴天"); got != 1 {
+		t.Errorf("by number: got %d, want 1", got)
+	}
+	if got := trackIndexIn(songs, 99, "东风破"); got != 2 {
+		t.Errorf("by name: got %d, want 2", got)
+	}
+	if got := trackIndexIn(songs, 99, "不存在"); got != -1 {
+		t.Errorf("missing: got %d, want -1", got)
+	}
+}

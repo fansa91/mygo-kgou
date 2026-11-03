@@ -312,3 +312,99 @@ func TestCommentReadsWriterAndReply(t *testing.T) {
 		t.Fatalf("reply = %+v", cm.Reply)
 	}
 }
+
+// A song's row carries the year its album came out, and an album's song list
+// says where the song sits on the album and on which disc: the download
+// writes both into the file's tag.
+func TestTrackReadsYearAndTrackNo(t *testing.T) {
+	// A flat row, as a singer's songs and the search send them.
+	flat := trackFrom(map[string]any{
+		"SongName": "晴天", "SingerName": "周杰伦", "publish_date": "2003-07-31",
+	})
+	if flat.Year != "2003-07-31" {
+		t.Errorf("flat year = %q, want 2003-07-31", flat.Year)
+	}
+	// A nested row, as an album's song list sends it: the date under the
+	// album, and the number and the disc under "extend".
+	nested := trackFromParts(map[string]any{
+		"base":       map[string]any{"album_audio_id": float64(1), "album_id": float64(2), "audio_name": "晴天", "author_name": "周杰伦"},
+		"audio_info": map[string]any{"hash": "ABC", "duration_128": float64(269000)},
+		"album_info": map[string]any{"album_name": "叶惠美", "publish_date": "2003-07-31"},
+		"copyright":  map[string]any{"privilege": float64(8)},
+		"deprecated": map[string]any{"pay_type": float64(0)},
+		"extend":     map[string]any{"sort": float64(3), "disc": float64(1)},
+		"authors":    []any{map[string]any{"author_id": float64(7), "author_name": "周杰伦"}},
+	})
+	if nested.Year != "2003-07-31" || nested.TrackNo != 3 || nested.DiscNo != 1 {
+		t.Errorf("nested = year %q, track %d, disc %d; want 2003-07-31, 3, 1", nested.Year, nested.TrackNo, nested.DiscNo)
+	}
+}
+
+// A song's qualities come by the level KuGou names them by, not by their bit
+// rate: a FLAC runs anywhere from 450 to 990kbps, and read by its number
+// alone it passes for a 320 and is lost. The rate is kept for the rows that
+// send no level.
+func TestQualityGoodsByLevel(t *testing.T) {
+	var tr Track
+	tr.put("low", 2, 128)
+	tr.put("high", 4, 320)
+	tr.put("flac", 5, 680)
+	tr.put("hires", 6, 468)
+	if tr.Hash != "low" || tr.HashHigh != "high" || tr.HashLossl != "flac" || tr.HashHires != "hires" {
+		t.Errorf("by level: standard %q, high %q, lossless %q, hires %q; want low, high, flac, hires",
+			tr.Hash, tr.HashHigh, tr.HashLossl, tr.HashHires)
+	}
+
+	var old Track
+	old.put("a", 0, 128)
+	old.put("b", 0, 320)
+	old.put("c", 0, 1000)
+	old.put("d", 0, 2000)
+	if old.Hash != "a" || old.HashHigh != "b" || old.HashLossl != "c" || old.HashHires != "d" {
+		t.Errorf("by rate: standard %q, high %q, lossless %q, hires %q; want a, b, c, d",
+			old.Hash, old.HashHigh, old.HashLossl, old.HashHires)
+	}
+}
+
+// A playlist's row says what each of its songs was uploaded as, under the
+// goods it was read from.
+func TestFileRowKeepsQualities(t *testing.T) {
+	tr := trackFromFile(map[string]any{
+		"hash": "AAA",
+		"relate_goods": []any{
+			map[string]any{"hash": "AAA", "level": float64(2), "bitrate": float64(128)},
+			map[string]any{"hash": "BBB", "level": float64(4), "bitrate": float64(320)},
+			map[string]any{"hash": "CCC", "level": float64(5), "bitrate": float64(742)},
+			map[string]any{"hash": "DDD", "level": float64(6), "bitrate": float64(955)},
+		},
+	})
+	if tr.Hash != "aaa" || tr.HashHigh != "bbb" || tr.HashLossl != "ccc" || tr.HashHires != "ddd" {
+		t.Errorf("qualities: standard %q, high %q, lossless %q, hires %q; want aaa, bbb, ccc, ddd",
+			tr.Hash, tr.HashHigh, tr.HashLossl, tr.HashHires)
+	}
+}
+
+// A song is the album audio it is, which both services number the same; the
+// hashes they hold for it often differ, so the qualities go by that number
+// first and by the hash only for a song the public list does not number.
+func TestQualitiesGoByTheAlbumAudio(t *testing.T) {
+	q := Qualities{
+		byAudio: map[int64]qualities{7: {high: "h1"}},
+		byHash:  map[string]qualities{"x": {high: "h2"}},
+	}
+	songs := []Track{
+		{AlbumAudioID: 7, Hash: "x"},
+		{AlbumAudioID: 8, Hash: "x"},
+		{AlbumAudioID: 9, Hash: "y"},
+	}
+	q.Fill(songs)
+	if songs[0].HashHigh != "h1" {
+		t.Errorf("a numbered song = %q, want h1", songs[0].HashHigh)
+	}
+	if songs[1].HashHigh != "h2" {
+		t.Errorf("a song without its number = %q, want h2", songs[1].HashHigh)
+	}
+	if songs[2].HashHigh != "" {
+		t.Errorf("a song neither service named got %q", songs[2].HashHigh)
+	}
+}
