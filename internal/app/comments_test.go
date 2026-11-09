@@ -203,3 +203,100 @@ func TestCommentsShowWhatKuGouServes(t *testing.T) {
 		t.Error("the 最新 page shows the 精彩 comments too")
 	}
 }
+
+// 发送 writes what the listener typed as a comment on the song Now Playing,
+// then shows the 最新 page from its first, where theirs is now the newest.
+func TestWriteComment(t *testing.T) {
+	type post struct{ thread, content string }
+	posts := make(chan post, 4)
+	sendComment = func(thread, content string) error {
+		posts <- post{thread, content}
+		return nil
+	}
+	defer func() { sendComment = netease.SendComment }()
+	threadComments = func(thread string, order kugou.CommentOrder, page, limit int) (*netease.Comments, error) {
+		return &netease.Comments{}, nil
+	}
+	defer func() { threadComments = netease.ThreadComments }()
+	a, tt, _ := coverApp(t)
+	a.profile = &netease.Profile{UserID: 1}
+	tr := a.pl.Current()
+	a.comments = commentState{
+		track: tr.ID, thread: tr.Thread(), active: commentTabHot,
+		hot: commentPage{loaded: true, total: 1, list: []netease.Comment{{ID: 5, Content: "好听"}}},
+	}
+	a.npPane = paneComments
+	tt.Frame()
+	a.comments.draft = "循环了一整晚"
+	tt.Frame()
+	if err := tt.Click("发送"); err != nil {
+		t.Fatal(err)
+	}
+	if p := wait(t, posts, "the comment"); p != (post{tr.Thread(), "循环了一整晚"}) {
+		t.Fatalf("posted %+v", p)
+	}
+	// What comes back from posting runs on the window's loop, which the
+	// tester has none of: it is taken here as it arrives.
+	a.wroteComment(tr.Thread(), nil)
+	tt.Frame()
+	if a.comments.draft != "" {
+		t.Errorf("the draft stayed: %q", a.comments.draft)
+	}
+	if a.comments.active != commentTabNew {
+		t.Errorf("stayed on %q after posting", a.comments.active)
+	}
+}
+
+// 回复 under a comment answers that one, and the composer says whose comment
+// it is answering until it is posted or given up.
+func TestReplyToComment(t *testing.T) {
+	type post struct {
+		thread string
+		target int64
+		text   string
+	}
+	posts := make(chan post, 4)
+	replyComment = func(thread string, target netease.Comment, content string) error {
+		posts <- post{thread, target.ID, content}
+		return nil
+	}
+	defer func() { replyComment = netease.ReplyComment }()
+	threadComments = func(thread string, order kugou.CommentOrder, page, limit int) (*netease.Comments, error) {
+		return &netease.Comments{}, nil
+	}
+	defer func() { threadComments = netease.ThreadComments }()
+	a, tt, _ := coverApp(t)
+	a.profile = &netease.Profile{UserID: 1}
+	tr := a.pl.Current()
+	cm := netease.Comment{ID: 5, Content: "副歌绝了"}
+	cm.User.Nickname = "冰美式"
+	a.comments = commentState{
+		track: tr.ID, thread: tr.Thread(), active: commentTabHot,
+		hot: commentPage{loaded: true, total: 1, list: []netease.Comment{cm}},
+	}
+	a.npPane = paneComments
+	tt.Frame()
+	if err := tt.Click("回复"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !a.comments.answering || a.comments.answer.ID != 5 {
+		t.Fatalf("answering %+v", a.comments.answer)
+	}
+	if !tt.HasText("回复 @冰美式") {
+		t.Error("the composer does not say whose comment it answers")
+	}
+	a.comments.draft = "同感"
+	tt.Frame()
+	if err := tt.Click("发送"); err != nil {
+		t.Fatal(err)
+	}
+	if p := wait(t, posts, "the reply"); p != (post{tr.Thread(), 5, "同感"}) {
+		t.Fatalf("posted %+v", p)
+	}
+	a.wroteComment(tr.Thread(), nil)
+	tt.Frame()
+	if a.comments.answering {
+		t.Error("still answering after posting")
+	}
+}

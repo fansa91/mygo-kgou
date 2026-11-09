@@ -16,6 +16,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	_ "golang.org/x/image/webp"
 
+	"netease-music-mygo/internal/local"
 	"netease-music-mygo/internal/netease"
 )
 
@@ -149,9 +150,16 @@ func (c *artCache) get(url string, backdrop bool) *artwork {
 const artRelease = 2 * time.Second
 
 // loadArt fetches the cover at url, as a bitmap to draw and an image to
-// measure, with the bytes of its data.
+// measure, with the bytes of its data. A cover of the local library is in
+// the song's file, or beside it, rather than on the CDN.
 func loadArt(url string) (*ui.Bitmap, image.Image, int, error) {
-	b, err := netease.Fetch(url)
+	var b []byte
+	var err error
+	if path, ok := localCoverPath(url); ok {
+		b, err = local.Cover(path)
+	} else {
+		b, err = netease.Fetch(url)
+	}
 	if err != nil {
 		return nil, nil, 0, err
 	}

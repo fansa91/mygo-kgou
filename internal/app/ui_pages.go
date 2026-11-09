@@ -433,6 +433,12 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 							Padding(1, 5).Radius(3).Border(1, badgeColor.Alpha(0.5))
 					}
 					a.artistLinks(c, tr, p.muted, p.text).FontSize(12.5).SingleLine().Shrink(1).MinWidth(0)
+					// A file says its format, where a song of KuGou's says
+					// its quality.
+					if f := localFormat(tr); f != "" {
+						ui.Text(c, f).FontSize(9).FontWeight(800).LetterSpacing(0.5).TextColor(p.muted).
+							Padding(1, 5).Radius(3).Border(1, p.muted.Alpha(0.5))
+					}
 					if tr.Reason != "" {
 						ui.Text(c, tr.Reason).FontSize(10.5).FontWeight(600).TextColor(p.accent).Padding(1, 6).Radius(999).Background(p.accent.Alpha(0.1)).SingleLine()
 					}
@@ -449,8 +455,17 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 				})
 			}
 			// A liked song's heart shows; the others' as the pointer is on them.
+			// A song of the local library has no heart: its file shows.
 			ui.Box(c).Size(32, 32).Center().Children(func() {
-				if a.liked[tr.ID] || hovered {
+				switch {
+				case tr.Local():
+					if hovered {
+						b := iconButton(c.Key("reveal"), iconFolder, 15, p.muted, "在文件夹中显示")
+						if b.Clicked() {
+							revealPath(tr.Path)
+						}
+					}
+				case a.liked[tr.ID] || hovered:
 					a.likeButton(c.Key("like"), tr, 15, p.muted)
 				}
 			})

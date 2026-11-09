@@ -136,6 +136,8 @@ func (a *app) load(r route) {
 		a.loadPodcast(r.id)
 	case pagePodcasts:
 		a.loadPodcastTab()
+	case pageLocal:
+		a.loadLocal()
 	}
 }
 
@@ -186,6 +188,7 @@ func (a *app) sidebar(c *ui.Context) {
 			a.navItem(c, iconRadio, "私人 FM", route{page: pageFM})
 			a.navItem(c, iconCharts, "排行榜", route{page: pageCharts})
 			a.navItem(c, iconPodcast, "听书", route{page: pagePodcasts})
+			a.navItem(c, iconNote, "本地音乐", route{page: pageLocal})
 			a.navItem(c, iconDownload, "下载管理", route{page: pageDownloads})
 			if a.searched.query != "" {
 				a.navItem(c, iconSearch, "搜索结果", a.searched)
@@ -382,6 +385,8 @@ func (a *app) content(c *ui.Context) {
 		a.podcastsPage(c)
 	case pageDownloads:
 		a.downloadsPage(c)
+	case pageLocal:
+		a.localPage(c)
 	}
 }
 

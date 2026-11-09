@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -10,20 +11,22 @@ import (
 	"netease-music-mygo/internal/netease"
 )
 
-// These load a page of a thread's comments, like a comment or unlike it,
-// and say whether the service takes a like at all, with NetEase; tests
+// These load a page of a thread's comments, like a comment or unlike it, and
+// write one, a comment of the listener's or the answer to theirs; tests
 // replace them.
 var (
-	threadComments    = netease.ThreadComments
-	likeComment       = netease.LikeComment
-	commentsLikeable  = netease.CommentsLikeable
+	threadComments   = netease.ThreadComments
+	likeComment      = netease.LikeComment
+	commentsLikeable = netease.CommentsLikeable
+	sendComment      = netease.SendComment
+	replyComment     = netease.ReplyComment
 )
 
 // commentTabs are the two pages the comments show: the 精彩 ones KuGou ranks
 // first, and the 最新 ones written most recently.
 const (
-	commentTabHot  = "精彩" // most liked first
-	commentTabNew  = "最新" // most recent first
+	commentTabHot = "精彩" // most liked first
+	commentTabNew = "最新" // most recent first
 )
 
 // commentPage is how many comments a page loads, and where it is in them:
@@ -43,10 +46,16 @@ type commentPage struct {
 // the 精彩 ones and the 最新 ones, each on its own page with its own place.
 type commentState struct {
 	track  int64
-	thread string // whose comments they are, as NetEase names it
-	hot    commentPage  // 精彩: most liked, paginated on its own
-	latest commentPage  // 最新: most recent, paginated on its own
-	active string       // commentTabHot or commentTabNew
+	thread string      // whose comments they are, as NetEase names it
+	hot    commentPage // 精彩: most liked, paginated on its own
+	latest commentPage // 最新: most recent, paginated on its own
+	active string      // commentTabHot or commentTabNew
+	// What the listener is writing, and the comment it answers when it is
+	// an answer rather than a comment of their own.
+	draft     string
+	answer    netease.Comment
+	answering bool
+	sending   bool
 }
 
 // commentPageSize is how many comments a page loads.
@@ -65,6 +74,12 @@ func (cs *commentState) activePage() *commentPage {
 // pane's tab.
 func (a *app) commentsFor(tr *netease.Track) *commentState {
 	cs := &a.comments
+	if tr.Local() {
+		// A file of the listener's own is on no service, and has nothing
+		// to ask for.
+		*cs = commentState{}
+		return cs
+	}
 	if cs.track != tr.ID {
 		*cs = commentState{track: tr.ID, thread: tr.Thread(), active: commentTabHot}
 		a.loadComments()
@@ -213,8 +228,9 @@ type commentKey struct {
 	id  int64
 }
 
-// commentsPane lists the comments of tr: a 精彩 / 最新 tab switch, and the
-// page that is showing, which loads on as it scrolls into view.
+// commentsPane lists the comments of tr: a 精彩 / 最新 tab switch, the page
+// that is showing, which loads on as it scrolls into view, and below them
+// where the listener writes one.
 func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
 	cs := a.commentsFor(tr)
 	cp := cs.activePage()
@@ -223,6 +239,14 @@ func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
 		a.commentTab(c, commentTabHot, cp == &cs.hot)
 		a.commentTab(c, commentTabNew, cp == &cs.latest)
 	})
+	a.commentPages(c, cs, cp)
+	a.commentComposer(c)
+}
+
+// commentPages shows the page of comments the tab holds: a skeleton while
+// the first of them loads, what it says when there are none, or the comments
+// themselves, the next page loading as the foot comes into view.
+func (a *app) commentPages(c *ui.Context, cs *commentState, cp *commentPage) {
 	if len(cp.list) == 0 {
 		if cp.loading || !cp.loaded && cp.err == "" {
 			ui.Column(c).Grow(1).Padding(4, 8, 0, 0).Gap(2).Children(func() {
@@ -331,9 +355,120 @@ func (a *app) commentRow(c *ui.Context, cm *netease.Comment, now time.Time) {
 			if loc := cm.IPLocation.Location; loc != "" {
 				meta += " · " + loc
 			}
-			ui.Text(c, meta).FontSize(11.5).TextColor(white.Alpha(0.38))
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, meta).FontSize(11.5).TextColor(white.Alpha(0.38)).Shrink(1).MinWidth(0)
+				a.commentReply(c, cm)
+			})
 		})
 	})
+}
+
+// commentReply is the 回复 under a comment, which takes the composer to
+// answering that comment.
+func (a *app) commentReply(c *ui.Context, cm *netease.Comment) {
+	fg := white.Alpha(0.4)
+	b := ui.ButtonBase(c.Key("reply")).Padding(1, 4).Radius(6)
+	if b.Hovered() {
+		fg = white.Alpha(0.85)
+	}
+	b.Children(func() { ui.Text(c, "回复").FontSize(11.5).TextColor(fg) })
+	if b.Clicked() {
+		cs := &a.comments
+		cs.answer, cs.answering = *cm, true
+	}
+}
+
+// commentComposer is where the listener writes a comment, or answers one:
+// who it answers when it does, the field, and the button that posts it.
+// Signed out, it asks to sign in instead.
+func (a *app) commentComposer(c *ui.Context) {
+	cs := &a.comments
+	ui.Column(c).Padding(6, 12, 10, 12).Gap(6).Children(func() {
+		if a.profile == nil {
+			if b := pillButton(c.Key("signin"), iconComment, "登录后可以评论", white.Alpha(0.1), white.Alpha(0.75)); b.Clicked() {
+				a.openLogin()
+			}
+			return
+		}
+		if cs.answering {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "回复 @"+cs.answer.User.Nickname).FontSize(12).TextColor(white.Alpha(0.5)).SingleLine().Shrink(1).MinWidth(0)
+				ui.Spacer(c)
+				b := ui.ButtonBase(c.Key("cancel-reply")).Padding(2, 6).Radius(6)
+				b.Children(func() { ui.Text(c, "取消").FontSize(12).TextColor(white.Alpha(0.5)) })
+				if b.Clicked() {
+					cs.answering = false
+				}
+			})
+		}
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			in := ui.TextInput(c.Key("draft"), &cs.draft).Placeholder("说点什么…").Label("评论").
+				FontSize(13).Height(36).PaddingX(14).Radius(999).
+				Background(white.Alpha(0.08)).TextColor(white).Grow(1).MinWidth(0)
+			if in.Submitted() {
+				a.submitComment()
+			}
+			send := pillButton(c.Key("send"), nil, "发送", a.pal.accent, a.pal.onAccent)
+			if strings.TrimSpace(cs.draft) == "" || cs.sending {
+				send.Disabled(true).Opacity(0.4)
+			}
+			if send.Clicked() {
+				a.submitComment()
+			}
+		})
+	})
+}
+
+// submitComment posts what the listener wrote, a comment or the answer to
+// one, and then shows the 最新 page from its first, with theirs at the top.
+func (a *app) submitComment() {
+	cs := &a.comments
+	text := strings.TrimSpace(cs.draft)
+	if text == "" || cs.sending {
+		return
+	}
+	if a.profile == nil {
+		a.openLogin()
+		return
+	}
+	thread, answer, answering := cs.thread, cs.answer, cs.answering
+	cs.sending = true
+	go func() {
+		var err error
+		if answering {
+			err = replyComment(thread, answer, text)
+		} else {
+			err = sendComment(thread, text)
+		}
+		a.post(func() { a.wroteComment(thread, err) })
+	}()
+}
+
+// wroteComment takes what came of posting what the listener wrote: the field
+// empties and the 最新 page comes again with theirs at the top, or the
+// comment stays written for them to try again.
+func (a *app) wroteComment(thread string, err error) {
+	cs := &a.comments
+	if cs.thread != thread {
+		return
+	}
+	cs.sending = false
+	if err != nil {
+		a.toast = "评论发送失败，请稍后再试"
+		return
+	}
+	cs.draft, cs.answering = "", false
+	a.toast = "评论已发送"
+	a.refreshComments()
+}
+
+// refreshComments loads the newest comments from their first page again, so
+// the one just written shows at the top of them.
+func (a *app) refreshComments() {
+	cs := &a.comments
+	cs.latest = commentPage{}
+	cs.active = commentTabNew
+	a.loadComments()
 }
 
 // commentLike is a comment's thumb, with how many liked it, which likes it

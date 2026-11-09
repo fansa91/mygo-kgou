@@ -51,6 +51,10 @@ type Track struct {
 	Year    string `json:"year,omitempty"`
 	TrackNo int    `json:"trackNo,omitempty"`
 	DiscNo  int    `json:"discNo,omitempty"`
+	// Path is where a song of the listener's own folders is, which the app
+	// plays from the file rather than from KuGou: its tags say what it is,
+	// and its words and picture come from it too.
+	Path string `json:"path,omitempty"`
 	// VIP marks a song that is sold by subscription. It is apart from
 	// playability on purpose: the 概念版 may play one at standard quality,
 	// and the row still says why it is not on the free tier.
@@ -66,11 +70,18 @@ func (t *Track) ArtistNames() string {
 	return strings.Join(names, ", ")
 }
 
+// Local reports whether the song plays from a file of the listener's own
+// folders rather than from KuGou.
+func (t *Track) Local() bool { return t.Path != "" }
+
 // Playable reports whether the listener can play the whole track. KuGou says
 // so of a song it sells, and of one it gives a minute of; the adapter keeps
 // that in Privilege, so a song the app greys out is one KuGou would refuse to
 // stream in full.
 func (t *Track) Playable() bool {
+	if t.Local() {
+		return true
+	}
 	if t.ProgramID > 0 {
 		// An episode's audio has no privilege: whether it streams is up to
 		// its stream, which the player asks for when it needs it.

@@ -221,19 +221,55 @@ func main() {
 			name  string
 			order kugou.CommentOrder
 		}{{"精彩", kugou.CommentsHot}, {"最新", kugou.CommentsNew}} {
-			list, total, err := kugou.Comments(client, t.Hash, tab.order, want, 5)
+			page, err := kugou.Comments(client, t.Hash, tab.order, want, 5)
 			if err != nil {
 				fmt.Printf("\n[%s] err: %v\n", tab.name, err)
 				continue
 			}
-			fmt.Printf("\n[%s] 第%d页 total=%d got=%d\n", tab.name, want, total, len(list))
-			for _, m := range list {
+			fmt.Printf("\n[%s] 第%d页 total=%d got=%d pool=%s name=%s\n", tab.name, want, page.Total, len(page.List), page.Pool, page.Name)
+			for _, m := range page.List {
 				fmt.Printf("%-16s %-6s %v 赞%d\n  %s\n", m.UserName, m.Location, m.At.Format("2006-01-02 15:04"), m.Likes, m.Content)
 				if m.Reply != nil {
 					fmt.Printf("  ↳ %s: %s\n", m.Reply.UserName, m.Reply.Content)
 				}
 			}
 		}
+
+	case "say":
+		// go run ./cmd/kgtest say 晴天 这条是测试，稍后删
+		if len(os.Args) < 4 {
+			usage()
+		}
+		t := firstSong(client, os.Args[2])
+		id, err := kugou.SendComment(client, t.Hash, t.AlbumAudioID, os.Args[3])
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("posted %d on %s - %s\n", id, t.Singer, t.Name)
+
+	case "answer":
+		// go run ./cmd/kgtest answer 晴天 <评论ID> 内容
+		if len(os.Args) < 5 {
+			usage()
+		}
+		t := firstSong(client, os.Args[2])
+		target := kugou.Comment{ID: mustInt(os.Args[3]), UserName: "测试"}
+		id, err := kugou.ReplyComment(client, t.Hash, t.AlbumAudioID, target, os.Args[4])
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("answered %v with %d\n", os.Args[3], id)
+
+	case "del":
+		// go run ./cmd/kgtest del 晴天 <评论ID>
+		if len(os.Args) < 4 {
+			usage()
+		}
+		t := firstSong(client, os.Args[2])
+		if err := kugou.DeleteComment(client, t.Hash, mustInt(os.Args[3])); err != nil {
+			fail(err)
+		}
+		fmt.Printf("deleted %v\n", os.Args[3])
 
 	case "album":
 		if len(os.Args) < 3 {
@@ -512,9 +548,23 @@ func indent(b []byte) string {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: kgtest register | search <keyword> | play <keyword> [level] | lyric <keyword> |\n"+
+		"       comments <keyword> [page] | say <keyword> <content> | del <keyword> <commentId> |\n"+
+		"       answer <keyword> <commentId> <content> |\n"+
 		"       get <router|-> <path> k=v... | login <mobile> | verify <mobile> <code> | me |\n"+
 		"       lists | liked | like <keyword> | unlike <keyword>")
 	os.Exit(2)
+}
+
+// firstSong is the first song a search for keyword finds.
+func firstSong(client *kugou.Client, keyword string) kugou.Track {
+	page, err := kugou.Search(client, keyword, 1, 1)
+	if err != nil {
+		fail(err)
+	}
+	if len(page.Songs) == 0 {
+		fail(errors.New("no songs found"))
+	}
+	return page.Songs[0]
 }
 
 func fail(err error) {

@@ -26,6 +26,7 @@ const (
 	pagePodcast
 	pagePodcasts
 	pageDownloads
+	pageLocal
 )
 
 type route struct {
@@ -88,6 +89,15 @@ type app struct {
 	podcastTab *podcastTab // the podcasts tab's lists
 	trackList  ui.ListState
 	dlList     ui.ListState // the downloads page's list
+	// The local library: the songs in the listener's folders, as last
+	// scanned, the folder they came from, and what the page filters them by.
+	localTracks     []netease.Track
+	localLoading    bool
+	localErr        string
+	localSkipped    int
+	localScanned    time.Time
+	localScannedDir string // the folder the songs came from
+	localFilter     string
 	// Where the page and the sidebar are scrolled, kept while Now Playing
 	// covers them, unbuilt.
 	pageScroll ui.ScrollState

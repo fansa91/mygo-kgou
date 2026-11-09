@@ -408,3 +408,41 @@ func TestQualitiesGoByTheAlbumAudio(t *testing.T) {
 		t.Errorf("a song neither service named got %q", songs[2].HashHigh)
 	}
 }
+
+// A page of comments carries the song's comment pool with it: the number a
+// comment of the listener's, or their answer to one, is filed under, and the
+// name the service keeps beside it.
+func TestCommentsCarryThePool(t *testing.T) {
+	out := map[string]any{
+		"count":      float64(711002),
+		"childrenid": float64(20505418),
+		"list": []any{map[string]any{
+			"id":             float64(315129160),
+			"content":        "故事的小黄花",
+			"user_name":      "斯蒂芬梅西",
+			"song_show_text": "周杰伦 - 晴天",
+		}},
+	}
+	pg := commentsPageFrom(out)
+	if pg.Pool != "20505418" || pg.Name != "周杰伦 - 晴天" || pg.Total != 711002 || len(pg.List) != 1 {
+		t.Fatalf("page = %+v", pg)
+	}
+	if pg.List[0].UserName != "斯蒂芬梅西" {
+		t.Fatalf("comment = %+v", pg.List[0])
+	}
+}
+
+// A reply says the listener's words, then the comment it answers as
+// "//@nickname:what it said", the way the phone's page quotes it.
+func TestReplyQuotesWhatItAnswers(t *testing.T) {
+	target := Comment{ID: 9, UserName: "冰美式", Content: "副歌绝了"}
+	if got := replyContent("同感", target); got != "同感//@冰美式:副歌绝了" {
+		t.Fatalf("reply = %q", got)
+	}
+	if got := replyContent("同感//@别人:原话", target); got != "同感//@别人:原话" {
+		t.Errorf("quoted again: %q", got)
+	}
+	if got := replyContent("同感", Comment{ID: 9, Content: "副歌绝了"}); got != "同感" {
+		t.Errorf("quoted a comment with no writer: %q", got)
+	}
+}

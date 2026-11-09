@@ -91,12 +91,12 @@ func ThreadComments(thread string, order kugou.CommentOrder, page, limit int) (*
 	if limit <= 0 {
 		limit = 30
 	}
-	list, total, err := kugou.Comments(c, k.Hash, order, page, limit)
+	list, err := kugou.Comments(c, k.Hash, order, page, limit)
 	if err != nil {
 		return nil, err
 	}
-	out := &Comments{Total: total, More: (page-1)*limit+len(list) < total}
-	for _, m := range list {
+	out := &Comments{Total: list.Total, More: (page-1)*limit+len(list.List) < list.Total}
+	for _, m := range list.List {
 		if order == kugou.CommentsHot {
 			out.Hot = append(out.Hot, toComment(m))
 		} else {
@@ -104,6 +104,45 @@ func ThreadComments(thread string, order kugou.CommentOrder, page, limit int) (*
 		}
 	}
 	return out, nil
+}
+
+// SendComment writes what the listener says about the song a thread names,
+// which KuGou files under the song's comment pool.
+func SendComment(thread, content string) error {
+	c, k, err := commentSong(thread)
+	if err != nil {
+		return err
+	}
+	_, err = kugou.SendComment(c, k.Hash, k.AlbumAudioID, content)
+	return err
+}
+
+// ReplyComment answers a comment under the song a thread names, quoting what
+// it answers.
+func ReplyComment(thread string, target Comment, content string) error {
+	c, k, err := commentSong(thread)
+	if err != nil {
+		return err
+	}
+	_, err = kugou.ReplyComment(c, k.Hash, k.AlbumAudioID, kugou.Comment{
+		ID:       target.ID,
+		Content:  target.Content,
+		UserName: target.User.Nickname,
+	}, content)
+	return err
+}
+
+// commentSong finds the song a thread names, to comment on.
+func commentSong(thread string) (*kugou.Client, kugou.Known, error) {
+	c, err := kuGou()
+	if err != nil {
+		return nil, kugou.Known{}, err
+	}
+	k, ok := app.index.Lookup(threadSong(thread))
+	if !ok || k.Hash == "" {
+		return nil, kugou.Known{}, ErrUnsupported
+	}
+	return c, k, nil
 }
 
 // toComment reads what KuGou serves of a comment as the app shows it.

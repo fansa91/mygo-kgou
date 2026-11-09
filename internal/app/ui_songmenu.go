@@ -25,6 +25,10 @@ func (a *app) songMenu(c *ui.Context, tr *netease.Track, size float32, color ui.
 // it is listed in, if set.
 func (a *app) songItems(tr *netease.Track, pid int64) func(m *ui.Menu) {
 	return func(m *ui.Menu) {
+		if tr.Local() {
+			a.localItems(m, tr)
+			return
+		}
 		if tr.ProgramID != 0 {
 			a.programItems(m, tr)
 			return
@@ -73,6 +77,22 @@ func (a *app) songItems(tr *netease.Track, pid int64) func(m *ui.Menu) {
 			a.openPage(route{page: pageAlbum, id: tr.Album.ID})
 		}
 		a.playlistItems(m, tr, pid)
+	}
+}
+
+// localItems builds the menu of a song of the listener's own folders: it has
+// no page on KuGou to copy a link to, and no playlist of the service to be
+// added to; what it has is the file it plays from.
+func (a *app) localItems(m *ui.Menu, tr *netease.Track) {
+	if m.Item("复制歌名").Chosen() {
+		copyText(tr.Name)
+	}
+	if m.Item("复制歌名和歌手").Chosen() {
+		copyText(tr.Name + " - " + tr.ArtistNames())
+	}
+	m.Separator()
+	if m.Item("在文件夹中显示").Chosen() {
+		revealPath(tr.Path)
 	}
 }
 

@@ -558,11 +558,22 @@ func (p *Player) Levels() ([Bands]float32, bool) {
 }
 
 func (p *Player) stop() {
-	if out := p.out; out != nil {
+	out, s := p.out, p.stream
+	switch {
+	case out != nil:
 		// Paused first, it fades out over a few milliseconds, rather than
-		// stopping with a click.
+		// stopping with a click. What it decoded closes after it: the
+		// file, or the cache's, which would otherwise stay open for every
+		// song played.
 		out.Pause()
-		time.AfterFunc(100*time.Millisecond, out.Close)
+		time.AfterFunc(100*time.Millisecond, func() {
+			out.Close()
+			if s != nil {
+				s.Close()
+			}
+		})
+	case s != nil:
+		s.Close()
 	}
 	p.out, p.stream, p.info = nil, nil, nil
 	p.seeking = false
@@ -591,7 +602,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 	p.refill()
 
 	go func() {
-		cover, err := netease.Fetch(netease.Sized(t.Album.PicURL, 600))
+		cover, err := trackCover(t)
 		if err == nil {
 			p.post(func() {
 				if gen == p.gen {
@@ -602,7 +613,7 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 	}()
 
 	go func() {
-		lrc, trans, yrc, krc, err := netease.Lyrics(t.ID)
+		lrc, trans, yrc, krc, err := trackLyrics(t)
 		var lines []lyrics.Line
 		if err == nil {
 			lines = lyrics.Build(lrc, trans, yrc, krc)
@@ -681,8 +692,13 @@ func (p *Player) loadSkipping(at, skipped int, play bool, from time.Duration) {
 }
 
 // open opens track t's audio at level: kept in the cache, or else
-// streamed into it, and kept once it has all come in.
+// streamed into it, and kept once it has all come in. A song of the local
+// library opens from its own file, whatever the level.
 func (p *Player) open(t netease.Track, level string) (*netease.Stream, stream, error) {
+	if t.Local() {
+		s, err := openFile(t)
+		return nil, s, err
+	}
 	dl, info, ok := p.Cache.lookup(t.ID, level)
 	if !ok {
 		var err error

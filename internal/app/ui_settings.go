@@ -174,9 +174,9 @@ func (a *app) settingsView(c *ui.Context) {
 			})
 		})
 
-if a.captionsShown() {
-		group("听书", func() { a.captionSettings(row, c) })
-	}
+		if a.captionsShown() {
+			group("听书", func() { a.captionSettings(row, c) })
+		}
 
 		group("缓存", func() {
 			row("歌曲缓存", "听过的歌曲保存在本机，再次播放无需等待，也不耗流量；"+a.cacheUsage(), func() {
@@ -250,6 +250,19 @@ if a.captionsShown() {
 						}
 					}
 					a.changed()
+				}
+			})
+		})
+
+		group("本地音乐", func() {
+			row("音乐文件夹", a.localDir(), func() {
+				if ui.Button(c.Key("local-dir"), "选择…").Clicked() {
+					a.chooseLocalDir()
+				}
+			})
+			row("重新扫描", "读取文件夹里每首歌的标签、封面与歌词：播放时直接从文件读取，下载的歌也能听", func() {
+				if ui.Button(c.Key("local-scan"), "扫描").Clicked() {
+					a.loadLocal()
 				}
 			})
 		})

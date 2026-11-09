@@ -55,6 +55,9 @@ type settings struct {
 	// DownloadQuality is the level downloads ask for, one of
 	// qualityLevels; empty for the best.
 	DownloadQuality string `json:"downloadQuality,omitempty"`
+	// LocalDir is the folder of the local library, which the page plays
+	// from: empty for the one downloads go to.
+	LocalDir string `json:"localDir,omitempty"`
 	// StageStyle is how the stage sets its lyrics (stageStyles): empty for
 	// Folia's classic, or the id of another of its visualizers.
 	StageStyle string `json:"stageStyle,omitempty"`
