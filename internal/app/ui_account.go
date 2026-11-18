@@ -51,7 +51,7 @@ type loginState struct {
 	gen      int // counts logins, to stop the polls of closed ones
 	key      string
 	code     *qr.Code
-	status   int // a QR state, or 0 while the code loads
+	status   int  // a QR state, or 0 while the code loads
 	polling  bool // whether a poll of the code is running
 	scanner  string
 	avatar   string
@@ -718,6 +718,17 @@ func (a *app) myPlaylists(c *ui.Context, title string, lists []netease.Playlist,
 			b.ContextMenu(func(m *ui.Menu) {
 				if m.Item("重命名…").Chosen() {
 					a.startRename(pl)
+				}
+				m.Separator()
+				if m.Item("上移").Chosen() {
+					a.movePlaylistOrder(pl.ID, true)
+				}
+				if m.Item("下移").Chosen() {
+					a.movePlaylistOrder(pl.ID, false)
+				}
+				m.Separator()
+				if m.Item("更换封面…").Chosen() {
+					a.changeCover(pl.ID)
 				}
 				m.Separator()
 				if m.Item("删除歌单…").Chosen() {

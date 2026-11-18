@@ -252,6 +252,14 @@ func (d *download) Progress() float64 {
 	return float64(d.n) / float64(d.size)
 }
 
+// whole reports whether all of the song is in: what reads it by seeking,
+// as an M4A's boxes and its sound do, needs it to be.
+func (d *download) whole() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.done && (d.size <= 0 || d.n >= d.size)
+}
+
 // waitFor waits until n bytes are in, or the download ended, and returns
 // how many there are.
 func (d *download) waitFor(n int64) int64 {
@@ -343,17 +351,32 @@ type stream interface {
 // bytes say. An MP3 says nothing of its length: durationMs is it.
 func openStream(dl *download, durationMs int64) (stream, error) {
 	off := id3Size(dl)
-	if dl.waitFor(off+4) >= off+4 {
+	if dl.waitFor(off+8) >= off+8 {
 		switch string(dl.peek(off, 4)) {
 		case "fLaC":
 			return openFLACStream(dl)
 		case "OggS":
 			// What the 概念版 streams, at the qualities its player is
 			// given rather than as MP3: an MP3 decoder reads nothing of it.
+			// The same pages carry Opus, as the listener's own .opus do.
 			return openOggStream(dl, durationMs)
+		}
+		// An MP4 keeps its sound in mdat, behind the boxes that say what
+		// it is; the first of them names the file.
+		if m4aNamed(string(dl.peek(off+4, 4))) {
+			return openM4AStream(dl, durationMs)
 		}
 	}
 	return openMP3Stream(dl, durationMs)
+}
+
+// m4aNamed reports whether a box of an MP4 is one a file may start with.
+func m4aNamed(box string) bool {
+	switch box {
+	case "ftyp", "moov", "mdat", "free", "wide":
+		return true
+	}
+	return false
 }
 
 // openShared opens a second stream of what dl fetches, for decoding apart
@@ -374,6 +397,8 @@ func openShared(dl *download, durationMs int64) (stream, error) {
 	case *flacStream:
 		s.spec, s.drop = nil, dl.release
 	case *oggStream:
+		s.spec, s.drop = nil, dl.release
+	case *m4aStream:
 		s.spec, s.drop = nil, dl.release
 	}
 	return s, nil
@@ -584,6 +609,29 @@ func newSpectrum(rate int, frames int64) *spectrum {
 	}
 	s.fft = make([]complex128, fftSize)
 	return s
+}
+
+// asStereo returns samples as two channels, for the visualizers: a stream of
+// one channel is heard twice, as the output plays it, and one of more than two
+// plays the first two.
+func asStereo(b []float32, ch int, buf *[]float32) []float32 {
+	if ch == 2 {
+		return b
+	}
+	frames := len(b) / ch
+	if cap(*buf) < frames*2 {
+		*buf = make([]float32, frames*2)
+	}
+	out := (*buf)[:frames*2]
+	for i := range frames {
+		left := b[i*ch]
+		right := left
+		if ch > 1 {
+			right = b[i*ch+1]
+		}
+		out[2*i], out[2*i+1] = left, right
+	}
+	return out
 }
 
 // feed takes stereo samples decoded from frame at, unless the stream

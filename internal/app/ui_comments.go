@@ -20,6 +20,8 @@ var (
 	commentsLikeable = netease.CommentsLikeable
 	sendComment      = netease.SendComment
 	replyComment     = netease.ReplyComment
+	commentWords     = netease.CommentHotWords
+	commentsByWord   = netease.CommentsByWord
 )
 
 // commentTabs are the two pages the comments show: the 精彩 ones KuGou ranks
@@ -50,6 +52,12 @@ type commentState struct {
 	hot    commentPage // 精彩: most liked, paginated on its own
 	latest commentPage // 最新: most recent, paginated on its own
 	active string      // commentTabHot or commentTabNew
+	// The words listeners keep using in them, which the service sends with
+	// the comments, and the one the pages are filtered by.
+	words     []string
+	wordsFor  int64 // the song the words are of
+	wordsBusy bool
+	word      string // "" for all of them
 	// What the listener is writing, and the comment it answers when it is
 	// an answer rather than a comment of their own.
 	draft     string
@@ -83,8 +91,43 @@ func (a *app) commentsFor(tr *netease.Track) *commentState {
 	if cs.track != tr.ID {
 		*cs = commentState{track: tr.ID, thread: tr.Thread(), active: commentTabHot}
 		a.loadComments()
+		a.loadCommentWords(tr.ID)
 	}
 	return cs
+}
+
+// loadCommentWords reads the words the song's comments keep using, once.
+func (a *app) loadCommentWords(id int64) {
+	cs := &a.comments
+	if cs.wordsBusy || cs.wordsFor == id {
+		return
+	}
+	cs.wordsBusy = true
+	go func() {
+		words, err := commentWords(id)
+		a.post(func() {
+			cs.wordsBusy = false
+			cs.wordsFor = id
+			if err != nil {
+				return
+			}
+			cs.words = words
+		})
+	}()
+}
+
+// pickWord filters the comments by a hot word, or clears the filter when the
+// word is the one already shown.
+func (a *app) pickWord(word string) {
+	cs := &a.comments
+	if cs.word == word {
+		word = ""
+	}
+	cs.word = word
+	cs.active = commentTabHot
+	// The page the filtered comments fill starts over.
+	cs.hot = commentPage{}
+	a.loadComments()
 }
 
 // loadComments loads the next page of the comments' tab that is showing.
@@ -104,7 +147,14 @@ func (a *app) loadComments() {
 		if cs.active == commentTabNew {
 			order = kugou.CommentsNew
 		}
-		pageRes, err := threadComments(thread, order, page, commentPageSize)
+		var pageRes *netease.Comments
+		var err error
+		if word := cs.word; word != "" {
+			// A word filters the comments of the song itself.
+			pageRes, err = commentsByWord(cs.track, word, page, commentPageSize)
+		} else {
+			pageRes, err = threadComments(thread, order, page, commentPageSize)
+		}
 		a.post(func() {
 			if cs.thread != thread {
 				return
@@ -234,13 +284,46 @@ type commentKey struct {
 func (a *app) commentsPane(c *ui.Context, tr *netease.Track) {
 	cs := a.commentsFor(tr)
 	cp := cs.activePage()
+	a.commentWordChips(c, cs)
 	// The two tabs: 精彩 and 最新, each keeping its own page and place.
-	ui.Row(c).Padding(12, 12, 6, 12).Gap(10).Children(func() {
-		a.commentTab(c, commentTabHot, cp == &cs.hot)
-		a.commentTab(c, commentTabNew, cp == &cs.latest)
-	})
+	if cs.word == "" {
+		ui.Row(c).Padding(12, 12, 6, 12).Gap(10).Children(func() {
+			a.commentTab(c, commentTabHot, cp == &cs.hot)
+			a.commentTab(c, commentTabNew, cp == &cs.latest)
+		})
+	}
 	a.commentPages(c, cs, cp)
 	a.commentComposer(c)
+}
+
+// commentWordChips are the words the song's comments keep using: the whole
+// page, then each word, which filters the comments by it.
+func (a *app) commentWordChips(c *ui.Context, cs *commentState) {
+	if len(cs.words) == 0 {
+		return
+	}
+	ui.Row(c).Wrap().Padding(12, 12, 2, 12).Gap(6).Children(func() {
+		a.wordChip(c.Key("all"), "全部", cs.word == "", func() { a.pickWord(cs.word) })
+		for i, w := range cs.words {
+			if i >= 8 {
+				break
+			}
+			word := w
+			a.wordChip(c.Key(word), w, cs.word == word, func() { a.pickWord(word) })
+		}
+	})
+}
+
+// wordChip is one word of them.
+func (a *app) wordChip(c *ui.Context, label string, chosen bool, pick func()) {
+	bg, fg := white.Alpha(0.07), white.Alpha(0.6)
+	if chosen {
+		bg, fg = a.pal.accent.Alpha(0.22), white
+	}
+	b := pillButton(c, nil, label, bg, fg)
+	if b.Clicked() {
+		pick()
+	}
 }
 
 // commentPages shows the page of comments the tab holds: a skeleton while
@@ -263,6 +346,12 @@ func (a *app) commentPages(c *ui.Context, cs *commentState, cp *commentPage) {
 				if pillButton(c.Key("retry"), iconComment, "重试", white.Alpha(0.14), white).Clicked() {
 					a.loadComments()
 				}
+			case cs.word != "":
+				ui.Icon(c, iconComment).Size(40, 40).TextColor(white.Alpha(0.3))
+				ui.Text(c, "没有含「"+cs.word+"」的评论").FontSize(17).FontWeight(600).TextColor(white.Alpha(0.45))
+				if pillButton(c.Key("all"), nil, "看全部评论", white.Alpha(0.14), white).Clicked() {
+					a.pickWord(cs.word)
+				}
 			default:
 				ui.Icon(c, iconComment).Size(40, 40).TextColor(white.Alpha(0.3))
 				ui.Text(c, "还没有评论，快来抢沙发").FontSize(17).FontWeight(600).TextColor(white.Alpha(0.45))
@@ -275,9 +364,12 @@ func (a *app) commentPages(c *ui.Context, cs *commentState, cp *commentPage) {
 	var end ui.Rect
 	scroll.Children(func() {
 		ui.Column(c).Gap(2).Children(func() {
-			if cs.active == commentTabHot {
+			switch {
+			case cs.word != "":
+				commentHeading(c, "含「"+cs.word+"」的评论 "+count(cp.total))
+			case cs.active == commentTabHot:
 				commentHeading(c, commentTabHot+"评论")
-			} else {
+			default:
 				commentHeading(c, commentTabNew+"评论 "+count(cp.total))
 			}
 			for i := range cp.list {

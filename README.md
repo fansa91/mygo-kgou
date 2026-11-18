@@ -17,10 +17,16 @@
 - 搜索单曲、歌手、专辑、用户与听书，输入时显示搜索建议，保留搜索历史；搜索框空着时列出当天热搜，结果页能原地改词，边打边出结果
 - 歌手页的热门与最新歌曲、专辑与动态，关注歌手；专辑页与用户页
 - 听书：浏览与收听节目，订阅听书；在本机把节目转写成字幕（Qwen3-ASR），像歌词一样随播放滚动
-- 私人 FM（推荐 / 熟悉 / 探索）与心动模式
+- 私人 FM（推荐 / 熟悉 / 探索）与心动模式；场景电台（助眠、车载、工作学习等 11 个场景），一页接一页地放
+- 歌曲菜单里的「听相似的歌」：以这首歌为种子接着放，不是凭口味重开一台电台
+- 歌曲成绩单：这首歌到过哪些榜，各榜的最高名次、在榜次数与最近一次
+- 榜单往期：榜单的每一期都能翻回去听，一期的 500 首，随时回到最新
+- 评论热词：评论上方的词点一下就筛出含这个词的评论，再点一下看全部
+- 我的歌单可换封面、可上移下移（顺序保存在账号里，换设备也一样）
 - 边下边播，支持标准 / 较高 / 极高 / 无损（FLAC）/ Hi-Res 音质
-- 本地音乐：读取自己的音乐文件夹（MP3 / FLAC / Ogg / WAV），直接从文件播放，
-  标签、内嵌封面与歌词都从文件读，文件夹比邻的 cover.jpg 与 .lrc 同样认
+- 本地音乐：读取自己的音乐文件夹（MP3 / FLAC / Ogg Vorbis / Opus / M4A（AAC 与 ALAC）/ WAV），
+  直接从文件播放，标签、内嵌封面与歌词都从文件读，文件夹比邻的 cover.jpg 与 .lrc 同样认；
+  页面分「歌曲 / 歌手 / 专辑」三栏，点歌手或专辑进去只听那一些
 - 音乐云盘：手机「我的 - 云盘」里的歌，这里能看、能听、能删；自己的文件也能传上去，
   与手机和标准版共用同一份云盘
 - 听过的歌曲缓存在本机，再次播放无需等待
@@ -48,6 +54,8 @@ go test ./...        # 运行测试
 - [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi)：eapi 加密与登录流程的参考
 - [folia-major](https://github.com/chthollyphile/folia-major)：歌词动画效果的参考
 - [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)、[Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) 与 [Silero VAD](https://github.com/snakers4/silero-vad)：本机语音识别
+- [go-m4a](https://github.com/tphakala/go-m4a) 与 [saprobe-alac](https://github.com/mycophonic/saprobe-alac)：M4A 里的 AAC 与 ALAC
+- [goxiph](https://github.com/faide/goxiph) 与 [gopus](https://github.com/thesyncim/gopus)：Ogg Vorbis 与 Opus
 
 本项目与酷狗音乐官方无关，音乐版权归各权利人所有。
 

@@ -413,18 +413,22 @@ func UserPlaylists(uid int64) (made, saved []Playlist, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// The order the listener put them in, which is theirs and not the
+	// service's: it answers them as they were made.
+	lists = kugou.OrderedLists(lists)
 	for _, l := range lists {
 		if isLikedList(l) {
 			p := Playlist{
 				Name: "我喜欢的音乐", CoverURL: l.Pic, PicURL: l.Pic,
 				Description: "我喜欢的音乐", SpecialType: 5, TrackCount: l.Count,
+				Sort: l.Sort,
 			}
 			p.ID = app.lists.rememberCloud("liked", l.ID, l.Type, "我喜欢的音乐", l.Pic, l.CollectionID)
 			p.Creator.UserID, p.Creator.Nickname = c.UserID, myName()
 			made = append([]Playlist{p}, made...)
 			continue
 		}
-		p := Playlist{Name: l.Name, CoverURL: l.Pic, PicURL: l.Pic, TrackCount: l.Count}
+		p := Playlist{Name: l.Name, CoverURL: l.Pic, PicURL: l.Pic, TrackCount: l.Count, Sort: l.Sort}
 		p.Creator.UserID, p.Creator.Nickname = c.UserID, l.Creator
 		if p.Creator.Nickname == "" {
 			p.Creator.Nickname = myName()
@@ -471,7 +475,8 @@ func RenamePlaylist(id int64, name string) error {
 		return ErrUnsupported
 	}
 	listid, _ := strconv.ParseInt(ref, 10, 64)
-	if err := kugou.RenameList(c, listid, name); err != nil {
+	r, _ := app.lists.lookup(id)
+	if err := kugou.RenameList(c, listid, r.Type, name); err != nil {
 		return err
 	}
 	if r, ok := app.lists.lookup(id); ok {

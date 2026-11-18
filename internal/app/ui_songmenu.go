@@ -64,6 +64,14 @@ func (a *app) songItems(tr *netease.Track, pid int64) func(m *ui.Menu) {
 				a.toggleSelectMode()
 			}
 		}
+		// What it sounds like, and how it has done on the charts.
+		m.Separator()
+		if m.Item("听相似的歌").Chosen() {
+			a.playSimilar(tr)
+		}
+		if m.Item("歌曲成绩单…").Chosen() {
+			a.openRanking(tr)
+		}
 		// Its artists' and album's pages, those NetEase has.
 		linked := tr.Album.ID != 0
 		for _, ar := range tr.Artists {

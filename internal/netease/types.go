@@ -55,6 +55,9 @@ type Track struct {
 	// plays from the file rather than from KuGou: its tags say what it is,
 	// and its words and picture come from it too.
 	Path string `json:"path,omitempty"`
+	// Format is that file's format as its own tags told it — one of the names
+	// of package local — and empty for a song that streams.
+	Format string `json:"format,omitempty"`
 	// Cloud marks a file of the listener's music cloud, which plays from the
 	// cloud's own tracker rather than the catalogue's. CloudName is the name
 	// it has there, extension and all, which the tracker asks for with the
@@ -207,6 +210,9 @@ type Playlist struct {
 	TrackIDs []struct {
 		ID int64 `json:"id"`
 	} `json:"trackIds"`
+	// Sort is the place the listener gave the playlist among their own: the
+	// service keeps the number, and the app shows the higher one first.
+	Sort int `json:"-"`
 	// Preview holds a chart's top songs, as its card shows them.
 	Preview []ChartLine `json:"-"`
 }

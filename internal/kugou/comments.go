@@ -110,6 +110,89 @@ type CommentsPage struct {
 	Name  string // childrenname: the song as the service names it there
 }
 
+// HotWord is a word listeners keep using in a song's comments, and how many
+// of them it is in: KuGou picks a dozen to show above them, and each finds
+// the comments it is in.
+type HotWord struct {
+	Word  string
+	Count int
+}
+
+// CommentHotWords returns the words the service picked for a song's
+// comments. It comes with the comments themselves — the phone's own list
+// carries it — so this asks for a page of one comment and reads the words
+// beside it.
+func CommentHotWords(c *Client, audioID int64) ([]HotWord, error) {
+	if audioID == 0 {
+		return nil, fmt.Errorf("kugou: the song has no number to find its comments by")
+	}
+	var out map[string]any
+	err := c.send("POST", request{
+		Path: "/mcomment/v1/cmtlist",
+		Params: map[string]string{
+			"ver": "6", "mixsongid": strconv.FormatInt(audioID, 10),
+			"need_show_image": "1", "p": "1", "pagesize": "1",
+			"show_classify": "1", "show_hotword_list": "1",
+			"extdata": "0", "code": commentCode,
+		},
+	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return hotWordsFrom(out), nil
+}
+
+// hotWordsFrom reads the words out of the answer that carries them.
+func hotWordsFrom(out map[string]any) []HotWord {
+	var words []HotWord
+	for _, l := range maps(firstField(out, "hot_word_list")) {
+		w := clean(pickString(l, "content", "word"))
+		if w == "" {
+			continue
+		}
+		words = append(words, HotWord{Word: w, Count: int(pickInt(l, "count", "num"))})
+	}
+	return words
+}
+
+// CommentsByWord returns a page of the comments a hot word is in, ordered by
+// what was liked most, as the phone shows them when a word is tapped.
+func CommentsByWord(c *Client, audioID int64, word string, page, size int) (CommentsPage, error) {
+	word = strings.TrimSpace(word)
+	if audioID == 0 || word == "" {
+		return CommentsPage{}, fmt.Errorf("kugou: no word to find comments by")
+	}
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 30
+	}
+	var out map[string]any
+	err := c.send("POST", request{
+		Path: "/mcomment/v1/get_hot_word",
+		Params: map[string]string{
+			"mixsongid": strconv.FormatInt(audioID, 10), "need_show_image": "1",
+			"p": strconv.Itoa(page), "pagesize": strconv.Itoa(size),
+			"hot_word": word, "extdata": "0", "code": commentCode,
+		},
+	}, &out)
+	if err != nil {
+		return CommentsPage{}, err
+	}
+	return commentsPageFrom(out), nil
+}
+
+// firstField is what a map holds under the first of names it has.
+func firstField(m map[string]any, names ...string) any {
+	for _, n := range names {
+		if v, ok := m[n]; ok && v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
 // commentPool reads what a song's comments are filed under: every page of
 // them carries it, so the first one is enough.
 func commentPool(c *Client, hash string) (pool, name string, err error) {

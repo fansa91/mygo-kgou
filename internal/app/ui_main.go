@@ -401,6 +401,8 @@ func (a *app) content(c *ui.Context) {
 		a.localPage(c)
 	case pageCloud:
 		a.cloudPage(c)
+	case pageRanking:
+		a.rankingPage(c)
 	}
 }
 

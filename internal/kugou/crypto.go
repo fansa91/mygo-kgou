@@ -54,6 +54,23 @@ func randomKey(n int) string {
 	return string(b)
 }
 
+// cloudSeed is the key a cloud list write is made under: six characters of
+// the alphabet the app's own key generator draws from — digits and letters,
+// both cases — which the request carries RSA-encrypted beside the body.
+func cloudSeed() string {
+	const pool = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	b := make([]byte, 6)
+	for i := range b {
+		v, err := rand.Int(rand.Reader, big.NewInt(int64(len(pool))))
+		if err != nil {
+			b[i] = pool[0]
+			continue
+		}
+		b[i] = pool[v.Int64()]
+	}
+	return string(b)
+}
+
 // newGUID is getGuid: a v4 UUID, whose MD5 names this install.
 func newGUID() string {
 	e := func() string {

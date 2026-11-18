@@ -249,7 +249,12 @@ func (a *app) playlistPage(c *ui.Context) {
 		a.trackSkeleton(c, s, true, func(c *ui.Context) { a.playlistHeaderSkeleton(c, s) })
 		return
 	}
-	a.trackRows(c, pl.Tracks, true, func(c *ui.Context) { a.playlistHeader(c, pl) })
+	// A chart's past numbers are offered with its page, read once.
+	if pl.UpdateFreq != "" {
+		a.loadRankVols(pl)
+	}
+	shown := a.shownPlaylist(pl)
+	a.trackRows(c, shown.Tracks, true, func(c *ui.Context) { a.playlistHeader(c, shown) })
 }
 
 func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
@@ -260,7 +265,10 @@ func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
 		})
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
 			kind := "歌单"
-			if pl.UpdateFreq != "" {
+			switch {
+			case a.rankVolAt[pl.ID] != 0 && pl.Description != "":
+				kind = "榜单 · " + pl.Description
+			case pl.UpdateFreq != "":
 				kind = "榜单 · " + pl.UpdateFreq
 			}
 			ui.Text(c, kind).FontSize(12).FontWeight(600).TextColor(p.accent)
@@ -297,6 +305,19 @@ func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
 					}
 					if pillButton(c.Key("save"), icon, label, p.hover.Over(p.bg), p.text).Clicked() {
 						a.toggleSaved(*pl)
+					}
+				}
+				// The chart as it stood, by the number chosen.
+				if pl.UpdateFreq != "" || a.rankVolAt[pl.ID] != 0 {
+					vols := pillButton(c.Key("vols"), iconCharts, "往期", p.hover.Over(p.bg), p.text)
+					vols.Menu(a.rankVolItems(pl))
+					if a.rankVolBusy[pl.ID] {
+						ui.Text(c, "正在读取…").FontSize(12).TextColor(p.faint)
+					}
+					if a.rankVolAt[pl.ID] != 0 {
+						if pillButton(c.Key("vol-latest"), iconReload, "回到最新", p.hover.Over(p.bg), p.text).Clicked() {
+							a.closeRankVol(pl)
+						}
 					}
 				}
 				if mine := a.editable(pl.ID); mine != nil {
@@ -342,8 +363,10 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 		pid = a.route.id
 	}
 	w, _ := c.Size()
-	// An album's page has no column of the album its songs are on.
-	wide := w-sidebarWidth > 820 && a.route.page != pageAlbum
+	// An album's page has no column of the album its songs are on, and
+	// neither has one of the local library's albums.
+	onAlbum := a.route.page == pageAlbum || a.route.page == pageLocal && strings.HasPrefix(a.localPickRef, "album:")
+	wide := w-sidebarWidth > 820 && !onAlbum
 	top, bottom := a.insets(c)
 	// Rows out of view are not built, their marks with them: a list
 	// scrolled away from its start or end has content under the bars.

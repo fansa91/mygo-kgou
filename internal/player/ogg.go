@@ -1,42 +1,53 @@
 package player
 
 import (
-	"cmp"
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
-	"math"
 	"sync"
 
-	"github.com/jfreymuth/oggvorbis"
+	"github.com/faide/goxiph/audio"
+	"github.com/faide/goxiph/ogg"
+	"github.com/faide/goxiph/vorbis"
+	"github.com/thesyncim/gopus"
+	gopusogg "github.com/thesyncim/gopus/container/ogg"
 )
 
-// oggStream decodes an Ogg Vorbis download for package audio. It is what the
-// 概念版 streams: asked for its standard quality, its player is handed the
-// ogg file of that quality rather than an MP3, and an MP3 decoder reads
-// nothing of it.
+// oggStream decodes an Ogg file: Vorbis, which is what the 概念版 streams
+// rather than an MP3 at the qualities its player is given, and Opus, which a
+// library of the listener's own holds as .opus.
 //
 // An ogg file is a run of pages, each carrying the sample its last packet
 // ends at. Seeking goes to the page before the sample asked for and decodes
-// from there with the three header packets in front of it, as the format
-// allows: a page starts where a packet does, and a vorbis decoder needs the
-// headers once rather than the audio before them.
+// from there, the headers in front of it, as the format allows: a page starts
+// where a packet does, and a decoder needs the headers once rather than the
+// audio before them.
 type oggStream struct {
-	dl   *download
-	rd   *oggvorbis.Reader
-	rate int
-	ch   int
-	pos  int64 // the sample Read returns next
+	dl      *download
+	codec   oggCodec
+	headers [][]byte // the packets a decoder needs before any audio
+	dem     *ogg.Demuxer
+	serial  uint32
+
+	rate  int
+	ch    int
+	total int64 // frames the song holds, or -1 when its tags say nothing
+	pos   int64 // the frame Read returns next
+	skip  int64 // frames decoded but not played: an Opus stream's pre-skip
+
+	pend []float32
+	buf  []float32 // stereo of what decoded, for a file of one channel
+
 	spec *spectrum
 	drop func()
 	once sync.Once
+	err  error // what ended the song, to answer with once the rest is read
 
-	// data is where the audio starts, after the three header packets, total
-	// the frames the song holds, and pages what has been read of the page
-	// index a seek goes by.
-	data   int64
-	total  int64
-	pages  []oggPage
+	// data is where the audio starts, after the headers, and pages what has
+	// been read of the page index a seek goes by.
+	data    int64
+	pages   []oggPage
 	scanned int64
 }
 
@@ -51,44 +62,289 @@ type oggPage struct {
 
 const (
 	oggHeader = 27 // a page's header, before its segment table
+
+	// opusRate is what Opus decodes to, whatever rate its file names.
+	opusRate = 48000
 )
+
+// oggCodec decodes the packets of one codec into the samples the player takes.
+type oggCodec interface {
+	decode(packet []byte, out []float32) ([]float32, error)
+}
 
 func openOggStream(dl *download, durationMs int64) (*oggStream, error) {
 	if dl.waitFor(4) < 4 || string(dl.peek(0, 4)) != "OggS" {
 		return nil, errors.New("ogg: not an Ogg file")
 	}
-	rd, err := oggvorbis.NewReader(&downloadReader{d: dl, pos: 0})
+	headers, serial, err := oggHeaders(dl)
 	if err != nil {
 		return nil, err
 	}
-	s := &oggStream{dl: dl, rd: rd, rate: rd.SampleRate(), ch: rd.Channels(), drop: dl.Close}
-	if s.rate == 0 || s.ch == 0 {
+	codec, err := newOggCodec(headers)
+	if err != nil {
+		return nil, err
+	}
+	s := &oggStream{
+		dl: dl, codec: codec, headers: headers, serial: serial,
+		dem:  ogg.NewDemuxer(&downloadReader{d: dl, pos: 0}),
+		drop: dl.Close,
+	}
+	s.rate, s.ch = oggFormat(headers)
+	if s.rate <= 0 || s.ch <= 0 {
 		return nil, errors.New("ogg: no stream info")
 	}
-	s.data = oggAudioStart(dl)
+	// An Opus stream's first samples are the encoder's priming.
+	s.skip = oggPreSkip(headers)
+	s.data = oggDataStart(dl, len(headers))
 	s.total = -1
 	if durationMs > 0 {
 		s.total = durationMs * int64(s.rate) / 1000
 	}
-	s.spec = newSpectrum(s.rate, s.total)
+	s.spec = newSpectrum(s.rate, max(s.total, 0))
 	return s, nil
+}
+
+// oggHeaders reads as many packets as the codec at the front of the file
+// needs before any audio: three for Vorbis, two for Opus. It answers the
+// serial of the stream they belong to, which the rest of the file is read by.
+func oggHeaders(dl *download) (headers [][]byte, serial uint32, err error) {
+	dem := ogg.NewDemuxer(&downloadReader{d: dl, pos: 0})
+	want := 0
+	for want == 0 || len(headers) < want {
+		p, rerr := dem.ReadPacket()
+		if rerr != nil {
+			return nil, 0, rerr
+		}
+		if len(headers) == 0 {
+			serial = p.Serial
+			if want, err = oggHeaderCount(p.Data); err != nil {
+				return nil, 0, err
+			}
+		}
+		if p.Serial == serial {
+			headers = append(headers, p.Data)
+		}
+	}
+	return headers, serial, nil
+}
+
+// oggHeaderCount returns how many header packets the codec of this packet
+// has, and fails for a codec the app does not read.
+func oggHeaderCount(first []byte) (int, error) {
+	switch {
+	case bytes.HasPrefix(first, []byte("OpusHead")):
+		return 2, nil
+	case bytes.HasPrefix(first, []byte("\x01vorbis")):
+		return 3, nil
+	}
+	return 0, errors.New("ogg: a codec the app does not play")
+}
+
+// oggFormat returns the rate and the channels the headers name.
+func oggFormat(headers [][]byte) (rate, ch int) {
+	if len(headers) == 0 {
+		return 0, 0
+	}
+	if info, err := vorbis.ParseInfo(headers[0]); err == nil {
+		return info.SampleRate, info.Channels
+	}
+	if head, err := gopusogg.ParseOpusHead(headers[0]); err == nil {
+		return opusRate, int(head.Channels)
+	}
+	return 0, 0
+}
+
+// oggPreSkip returns how many samples of silence the codec's headers say come
+// before the song.
+func oggPreSkip(headers [][]byte) int64 {
+	if len(headers) == 0 {
+		return 0
+	}
+	if head, err := gopusogg.ParseOpusHead(headers[0]); err == nil {
+		return int64(head.PreSkip)
+	}
+	return 0
+}
+
+// newOggCodec makes the decoder of the codec these headers belong to, with
+// the headers already in it.
+func newOggCodec(headers [][]byte) (oggCodec, error) {
+	if len(headers) == 0 {
+		return nil, errors.New("ogg: no headers")
+	}
+	if bytes.HasPrefix(headers[0], []byte("OpusHead")) {
+		return newOpusCodec(headers)
+	}
+	return newVorbisCodec(headers)
+}
+
+// vorbisCodec decodes Vorbis packets: the decoder wants the three headers
+// once, then one packet at a time.
+type vorbisCodec struct {
+	dec *vorbis.Decoder
+	buf *audio.Buffer
+}
+
+func newVorbisCodec(headers [][]byte) (*vorbisCodec, error) {
+	if len(headers) < 3 {
+		return nil, errors.New("ogg: the Vorbis headers are missing")
+	}
+	info, err := vorbis.ParseInfo(headers[0])
+	if err != nil {
+		return nil, err
+	}
+	setup, err := vorbis.ParseSetup(headers[2], info)
+	if err != nil {
+		return nil, err
+	}
+	dec := vorbis.NewDecoder()
+	dec.SetInfo(info)
+	if err := dec.SetSetup(setup); err != nil {
+		return nil, err
+	}
+	buf, err := audio.NewBuffer(info.Format(), 0)
+	if err != nil {
+		return nil, err
+	}
+	return &vorbisCodec{dec: dec, buf: buf}, nil
+}
+
+func (v *vorbisCodec) decode(packet []byte, out []float32) ([]float32, error) {
+	v.buf.Resize(0)
+	if err := v.dec.DecodePacket(packet, v.buf); err != nil {
+		return out, err
+	}
+	frames := v.buf.Frames()
+	if len(v.buf.Data) == 1 {
+		return append(out, v.buf.Data[0][:frames]...), nil
+	}
+	for i := range frames {
+		for _, plane := range v.buf.Data {
+			out = append(out, plane[i])
+		}
+	}
+	return out, nil
+}
+
+// opusCodec decodes Opus packets. Opus decodes at 48 kHz whatever its file
+// names as its input rate.
+type opusCodec struct {
+	dec    *gopus.Decoder
+	ch     int
+	packet []float32
+}
+
+func newOpusCodec(headers [][]byte) (*opusCodec, error) {
+	if len(headers) < 2 {
+		return nil, errors.New("ogg: the Opus headers are missing")
+	}
+	head, err := gopusogg.ParseOpusHead(headers[0])
+	if err != nil {
+		return nil, err
+	}
+	ch := int(head.Channels)
+	if ch != 1 && ch != 2 {
+		return nil, errors.New("ogg: Opus of more than two channels is not played")
+	}
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(opusRate, ch))
+	if err != nil {
+		return nil, err
+	}
+	return &opusCodec{dec: dec, ch: ch}, nil
+}
+
+func (o *opusCodec) decode(packet []byte, out []float32) ([]float32, error) {
+	need := o.ch * 5760 // 120 ms at 48 kHz, more than a packet holds
+	if cap(o.packet) < need {
+		o.packet = make([]float32, need)
+	}
+	pcm := o.packet[:need]
+	n, err := o.dec.Decode(packet, pcm)
+	if err != nil {
+		return out, err
+	}
+	return append(out, pcm[:n*o.ch]...), nil
 }
 
 func (s *oggStream) SampleRate() int { return s.rate }
 func (s *oggStream) Channels() int   { return s.ch }
-
-func (s *oggStream) Len() int64 { return s.total }
+func (s *oggStream) Len() int64      { return s.total }
 
 func (s *oggStream) Read(dst []float32) (int, error) {
-	n, err := s.rd.Read(dst)
+	if len(dst) < s.ch {
+		return 0, nil
+	}
+	limit := len(dst) - len(dst)%s.ch
+	n := s.take(dst[:limit])
+	for n < limit && s.err == nil {
+		if err := s.fill(); err != nil {
+			s.err = err
+			break
+		}
+		n += s.take(dst[n:limit])
+	}
 	if n > 0 {
-		s.spec.feed(s.pos, dst[:n])
+		s.spec.feed(s.pos, asStereo(dst[:n], s.ch, &s.buf))
 		s.pos += int64(n / s.ch)
+		return n, nil
 	}
-	if errors.Is(err, io.ErrUnexpectedEOF) {
-		err = io.EOF
+	if s.err == nil {
+		s.err = io.EOF
 	}
-	return n, err
+	return 0, s.err
+}
+
+// fill decodes packets until samples are pending, or the song ends.
+func (s *oggStream) fill() error {
+	for len(s.pend) == 0 {
+		p, err := s.dem.ReadPacket()
+		if err != nil {
+			return err
+		}
+		if p.Serial != s.serial {
+			continue // another stream of a multiplexed file
+		}
+		if oggIsHeader(p.Data) {
+			continue // a chained stream's headers; this one follows after them
+		}
+		if s.pend, err = s.codec.decode(p.Data, s.pend[:0]); err != nil {
+			return err
+		}
+		s.trim()
+	}
+	return nil
+}
+
+// trim takes the codec's priming off what has just decoded.
+func (s *oggStream) trim() {
+	if s.skip <= 0 || len(s.pend) < s.ch {
+		return
+	}
+	frames := min(s.skip, int64(len(s.pend)/s.ch))
+	s.pend = s.pend[frames*int64(s.ch):]
+	s.skip -= frames
+}
+
+// take reads pending samples into dst.
+func (s *oggStream) take(dst []float32) int {
+	n := copy(dst, s.pend)
+	s.pend = s.pend[n:]
+	if len(s.pend) == 0 {
+		s.pend = s.pend[:0]
+	}
+	return n
+}
+
+// oggIsHeader reports whether a packet is one of a codec's headers rather
+// than sound.
+func oggIsHeader(p []byte) bool {
+	switch {
+	case bytes.HasPrefix(p, []byte("OpusHead")), bytes.HasPrefix(p, []byte("OpusTags")):
+		return true
+	case len(p) > 7 && p[0] < 0x08 && string(p[1:7]) == "vorbis":
+		return true
+	}
+	return false
 }
 
 // SetPosition goes to frame: to the page holding it, then drops the samples
@@ -103,37 +359,14 @@ func (s *oggStream) SetPosition(frame int64) error {
 			off, from = page, start
 		}
 	}
-	if err := s.restart(off); err != nil {
-		return err
-	}
-	s.pos = from
-	// What lies between the page and the sample asked for is decoded and
-	// dropped a little at a time, so a seek costs no memory.
-	buf := make([]float32, 2048*s.ch)
-	for left := frame - from; left > 0; {
-		want := int(min(left, 2048))
-		n, err := s.rd.Read(buf[:want*s.ch])
-		left -= int64(n / s.ch)
-		if n == 0 || err != nil {
-			break
-		}
-	}
-	s.pos = frame
-	return nil
-}
-
-// restart opens the song again with its headers in front of a page, as
-// though the file were the headers and then this page: all the decoder needs
-// to play from here.
-func (s *oggStream) restart(off int64) error {
-	rd, err := oggvorbis.NewReader(&ranged{
-		d:    s.dl,
-		segs: [][2]int64{{0, s.data}, {off, -1}},
-	})
+	codec, err := newOggCodec(s.headers)
 	if err != nil {
 		return err
 	}
-	s.rd = rd
+	s.codec = codec
+	s.dem = ogg.NewDemuxer(&downloadReader{d: s.dl, pos: off})
+	s.pend, s.err = nil, nil
+	s.pos, s.skip = frame, frame-from
 	return nil
 }
 
@@ -205,10 +438,9 @@ func (s *oggStream) scan(frame int64) {
 	}
 }
 
-// oggAudioStart returns where the audio starts: the end of the page the
-// third header packet ends on. The three headers come first in every ogg
-// vorbis file, and a packet ends at a segment shorter than 255 bytes.
-func oggAudioStart(dl *download) int64 {
+// oggDataStart returns where the audio starts: the end of the page the last
+// header packet ends on. A packet ends at a segment shorter than 255 bytes.
+func oggDataStart(dl *download, headers int) int64 {
 	packets, off := 0, int64(0)
 	for off < 1<<20 {
 		if dl.waitFor(off+oggHeader) < off+oggHeader {
@@ -230,76 +462,16 @@ func oggAudioStart(dl *download) int64 {
 			}
 		}
 		off += size
-		if packets >= 3 {
+		if packets >= headers {
 			return off
 		}
 	}
 	return off
 }
 
+func (s *oggStream) source() (*download, *spectrum) { return s.dl, s.spec }
+
 func (s *oggStream) Close() error {
 	s.once.Do(s.drop)
 	return nil
-}
-
-func (s *oggStream) source() (*download, *spectrum) { return s.dl, s.spec }
-
-// ranged reads a download in pieces: the song's headers, then from a byte of
-// its audio, as a seek does. It reads forward only, so the decoder that reads
-// it takes it for a stream and never asks for the end.
-type ranged struct {
-	d    *download
-	segs [][2]int64 // start, end; an end below zero runs to the end
-	i    int
-	off  int64
-}
-
-func (r *ranged) Read(p []byte) (int, error) {
-	for r.i < len(r.segs) {
-		start, end := r.segs[r.i][0], r.segs[r.i][1]
-		if end < 0 {
-			end = math.MaxInt64
-		}
-		if r.off < start {
-			r.off = start
-		}
-		if r.off >= end {
-			r.next()
-			continue
-		}
-		d := r.d
-		d.mu.Lock()
-		for d.n <= r.off && !d.done {
-			d.cond.Wait()
-		}
-		if d.n <= r.off {
-			err := d.err
-			d.mu.Unlock()
-			if r.next() {
-				continue
-			}
-			if err != nil {
-				return 0, err
-			}
-			return 0, io.EOF
-		}
-		n, err := d.readAt(p, r.off)
-		d.mu.Unlock()
-		if n == 0 {
-			return 0, cmp.Or(err, io.ErrUnexpectedEOF)
-		}
-		r.off += int64(n)
-		return n, err
-	}
-	return 0, io.EOF
-}
-
-// next moves to the piece after this one, and reports whether there is one.
-func (r *ranged) next() bool {
-	r.i++
-	if r.i >= len(r.segs) {
-		return false
-	}
-	r.off = r.segs[r.i][0]
-	return true
 }

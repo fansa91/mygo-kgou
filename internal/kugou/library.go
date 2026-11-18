@@ -205,11 +205,23 @@ func Ranks(c *Client) ([]Rank, error) {
 
 // RankSongs returns a page of a chart's songs, and how many it holds.
 func RankSongs(c *Client, rankID int64, page, size int) ([]Track, int, error) {
+	return RankSongsAt(c, rankID, 0, page, size)
+}
+
+// RankSongsAt returns a page of a chart as one of its past numbers stood:
+// KuGou names a number by its own id, and asks for its songs by that rather
+// than by the chart's. A zero vol asks for the chart as it stands now.
+func RankSongsAt(c *Client, rankID, volID int64, page, size int) ([]Track, int, error) {
 	if page < 1 {
 		page = 1
 	}
 	if size < 1 {
 		size = 100
+	}
+	// The songs of a number are the songs of the chart that number names.
+	asked := rankID
+	if volID != 0 {
+		asked = volID
 	}
 	var res struct {
 		Total int `json:"total"`
@@ -223,7 +235,7 @@ func RankSongs(c *Client, rankID int64, page, size int) ([]Track, int, error) {
 		Hdr:  map[string]string{"kg-tid": "369"},
 		Body: map[string]any{
 			"area_code": 1, "pagesize": size, "rank_cid": 0, "type": 1,
-			"page": page, "rank_id": rankID,
+			"page": page, "rank_id": asked,
 			"show_portrait_mv": 1, "show_type_total": 1, "filter_original_remarks": 1,
 		},
 	}, &res)
@@ -405,7 +417,7 @@ func trackFromParts(l map[string]any) Track {
 	t := Track{
 		AlbumAudioID: pickInt(base, "album_audio_id"),
 		AlbumID:      pickInt(base, "album_id"),
-		Name:         clean(pickString(base, "audio_name")),
+		Name:         clean(pickString(base, "audio_name", "songname")),
 		Singer:       clean(pickString(base, "author_name")),
 		Album:        clean(pickString(album, "album_name")),
 		Image:        sized(pickString(album, "cover")),

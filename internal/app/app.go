@@ -28,6 +28,7 @@ const (
 	pageDownloads
 	pageLocal
 	pageCloud
+	pageRanking
 )
 
 type route struct {
@@ -99,6 +100,19 @@ type app struct {
 	localScanned    time.Time
 	localScannedDir string // the folder the songs came from
 	localFilter     string
+	localTab        int    // what the page lists: localTabSongs, localTabArtists or localTabAlbums
+	localPickRef    string // the group of songs picked from those views, "" for all
+	localArtistN    int    // how many artists and albums the library holds
+	localAlbumN     int
+	// localResetList forgets where the list of songs was scrolled to, for
+	// a view that lists other songs. It is reset before the list builds,
+	// not as it builds: what changes the view is a row of the list itself.
+	localResetList bool
+	// The page's artists or albums as last gathered, and what they were
+	// gathered from: a library of thousands is worked out once, not each
+	// frame.
+	localGroupKey   string
+	localGroupCache []localGroup
 	// The music cloud: the files the listener put there themselves, how many
 	// there are, and what the page filters them by. Uploading one says which
 	// of how many is going.
@@ -149,6 +163,24 @@ type app struct {
 
 	fmMode        int    // the FM mode chosen, in fmModes
 	radioStarting string // the radio asked for its first songs, or ""
+
+	// The scenes the FM offers, and how reading them went.
+	scenes        []netease.Scene
+	scenesLoading bool
+	scenesErr     string
+
+	// A song's record across the charts, and the song it is of.
+	ranking        *netease.Ranking
+	rankingTrack   netease.Track
+	rankingLoading bool
+	rankingErr     string
+
+	// A chart's past numbers, the one its page shows, and the chart as that
+	// number stood: read when the page offers them, kept per chart.
+	rankVols    map[int64][]netease.RankVol
+	rankVolAt   map[int64]int64
+	rankVolPl   map[int64]*netease.Playlist
+	rankVolBusy map[int64]bool
 
 	scrub      float64
 	scrubbing  bool
@@ -220,19 +252,23 @@ func (a *app) showMain() {
 // Run runs the app until it quits.
 func Run() error {
 	a := &app{
-		playlists:  map[int64]*netease.Playlist{},
-		loadingPl:  map[int64]bool{},
-		plErr:      map[int64]string{},
-		artists:    map[int64]*artistData{},
-		albums:     map[int64]*albumData{},
-		users:      map[int64]*userData{},
-		podcasts:   map[int64]*podcastData{},
-		podcastTab: &podcastTab{},
-		searches:   map[route]*searchData{},
-		selected:   map[int64]*netease.Track{},
-		lyricAt:    -1,
-		queueAt:    -1,
-		cacheUsed:  -1,
+		playlists:   map[int64]*netease.Playlist{},
+		loadingPl:   map[int64]bool{},
+		plErr:       map[int64]string{},
+		artists:     map[int64]*artistData{},
+		albums:      map[int64]*albumData{},
+		users:       map[int64]*userData{},
+		podcasts:    map[int64]*podcastData{},
+		podcastTab:  &podcastTab{},
+		searches:    map[route]*searchData{},
+		selected:    map[int64]*netease.Track{},
+		rankVols:    map[int64][]netease.RankVol{},
+		rankVolAt:   map[int64]int64{},
+		rankVolPl:   map[int64]*netease.Playlist{},
+		rankVolBusy: map[int64]bool{},
+		lyricAt:     -1,
+		queueAt:     -1,
+		cacheUsed:   -1,
 	}
 	moveOldData()
 	a.useUpdater()

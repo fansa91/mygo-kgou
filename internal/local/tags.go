@@ -589,9 +589,15 @@ func readOgg(f *os.File, size int64) (meta, error) {
 		return m, ErrFormat
 	}
 	pkts := packets(head, 2)
-	if len(pkts) == 0 || !bytes.HasPrefix(pkts[0], []byte("\x01vorbis")) {
-		// Not Vorbis: Opus is kept in the same kind of file, and the app
-		// plays none of it.
+	if len(pkts) == 0 {
+		return m, ErrFormat
+	}
+	// The same kind of file keeps Opus, which a library of the listener's
+	// own has: its headers say what the stream is just as Vorbis's do.
+	if bytes.HasPrefix(pkts[0], []byte("OpusHead")) {
+		return opusMeta(f, size, pkts)
+	}
+	if !bytes.HasPrefix(pkts[0], []byte("\x01vorbis")) {
 		return m, ErrFormat
 	}
 	rate := 0
@@ -604,6 +610,28 @@ func readOgg(f *os.File, size int64) (meta, error) {
 	if rate > 0 {
 		if samples, ok := oggSamples(f, size); ok {
 			m.length = time.Duration(float64(samples) / float64(rate) * float64(time.Second))
+		}
+	}
+	return m, nil
+}
+
+// opusMeta reads an Ogg Opus file: its headers say the channels and the
+// priming, and the comment header what the song is. Opus decodes at 48 kHz
+// whatever rate its file names, which is the rate its granule counts in.
+func opusMeta(f *os.File, size int64, pkts [][]byte) (meta, error) {
+	m := meta{format: FormatOpus}
+	head := pkts[0]
+	if len(head) < 19 {
+		return m, ErrFormat
+	}
+	const opusRate = 48000
+	preSkip := int(le16(head[10:12]))
+	if len(pkts) > 1 && bytes.HasPrefix(pkts[1], []byte("OpusTags")) {
+		vorbisTags(pkts[1][len("OpusTags"):], &m)
+	}
+	if samples, ok := oggSamples(f, size); ok {
+		if frames := samples - int64(preSkip); frames > 0 {
+			m.length = time.Duration(float64(frames) / opusRate * float64(time.Second))
 		}
 	}
 	return m, nil

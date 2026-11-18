@@ -2,8 +2,9 @@ package kugou
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
+	"path"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -22,14 +23,23 @@ type UserList struct {
 	Default      bool // the list KuGou keeps the liked songs in
 	Pic          string
 	Count        int
+	Sort         int // its place among the lists of its kind
 	Creator      string
 	CollectionID string // what the public playlist service calls it
 }
 
 // MyLists returns the playlists the listener made and saved.
 func MyLists(c *Client) ([]UserList, error) {
+	lists, _, err := MyListsVersion(c)
+	return lists, err
+}
+
+// MyListsVersion returns the listener's playlists and the version the
+// service holds them at: changing their order or their covers names that
+// version, so that a change made elsewhere is not written over.
+func MyListsVersion(c *Client) ([]UserList, int64, error) {
 	if !c.SignedIn() {
-		return nil, ErrNoSession
+		return nil, 0, ErrNoSession
 	}
 	var res map[string]any
 	err := c.send("POST", request{
@@ -44,13 +54,133 @@ func MyLists(c *Client) ([]UserList, error) {
 		},
 	}, &res)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var out []UserList
 	for _, l := range firstArray(res["data"], "info", "lists", "list") {
 		out = append(out, userListFrom(l))
 	}
-	return out, nil
+	data, _ := res["data"].(map[string]any)
+	return out, pickInt(data, "total_ver"), nil
+}
+
+// OrderedLists answers the listener's lists in the order they gave them: the
+// service keeps the order as a number on each list and answers them as they
+// were made, and the app shows the numbers from the highest down, the ones
+// it never numbered last.
+func OrderedLists(lists []UserList) []UserList {
+	out := slices.Clone(lists)
+	slices.SortStableFunc(out, func(a, b UserList) int {
+		switch {
+		case a.Sort > b.Sort:
+			return -1
+		case a.Sort < b.Sort:
+			return 1
+		}
+		return 0
+	})
+	return out
+}
+
+// SortLists gives the listener's lists the order they are given in, first
+// shown first: each one's place among them, from one. KuGou numbers the
+// lists it made and those it saved apart, so a caller ordering one kind
+// sends that kind, one list to a call, as the service takes them.
+func SortLists(c *Client, totalVer int64, lists []UserList) error {
+	for i, l := range lists {
+		l.Sort = len(lists) - i
+		if err := modifyList(c, totalVer, l, map[string]any{"sort": l.Sort}, &empty{}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetListCover gives one of the listener's lists a picture of its own, named
+// as the cover upload names what it stored, and answers the picture the
+// service now serves for it.
+func SetListCover(c *Client, totalVer int64, l UserList, pic string) (string, error) {
+	pic = strings.TrimSpace(pic)
+	if pic == "" {
+		return "", errors.New("kugou: there is no picture to set")
+	}
+	// The service keeps covers as paths under its image CDN.
+	if !strings.HasPrefix(pic, "stdmusic/") {
+		pic = "stdmusic/" + path.Base(pic)
+	}
+	var res struct {
+		Data struct {
+			Info struct {
+				Pic string `json:"pic"`
+			} `json:"info"`
+		} `json:"data"`
+	}
+	if err := modifyList(c, totalVer, l, map[string]any{"pic": pic}, &res); err != nil {
+		return "", err
+	}
+	// The answer names the picture with the size in it, which is the form
+	// the app shows a list's cover in.
+	cover := strings.ReplaceAll(res.Data.Info.Pic, "{size}", "480")
+	cover = strings.ReplaceAll(cover, "http://", "https://")
+	if cover == "" {
+		cover = "https://imge.kugou.com/stdmusic/480/" + strings.TrimPrefix(pic, "stdmusic/")
+	}
+	return cover, nil
+}
+
+// modifyList changes one of the listener's lists: its name, its picture, or
+// its place among the lists of its kind. The place it is already in goes
+// with every change, as a place it is not in moves it.
+func modifyList(c *Client, totalVer int64, l UserList, fields map[string]any, out any) error {
+	body := map[string]any{
+		"listid": l.ID, "type": l.Type, "total_ver": totalVer,
+		"sort": l.Sort, "tags": "", "intro": "", "is_pri": 0,
+	}
+	for k, v := range fields {
+		body[k] = v
+	}
+	body, err := cloudBody(c, body)
+	if err != nil {
+		return err
+	}
+	return c.send("POST", request{
+		Path:   "/cloudlist.service/v4/modify_list",
+		Params: cloudParams(),
+		Body:   body,
+	}, out)
+}
+
+// cloudParams are what the cloud list's own services want beside a body: the
+// two the app sends with every write it makes.
+func cloudParams() map[string]string {
+	return map[string]string{"last_area": "gztx", "last_time": strconv.FormatInt(now(), 10)}
+}
+
+// cloudBody is what the cloud list's write services read: the fields as
+// plain JSON, with the token sealed beside them as "encstr" under a key of
+// the call's own, which travels RSA-encrypted in "enckey". The whole-body
+// cipher these services once took is answered with 20010 now.
+func cloudBody(c *Client, fields map[string]any) (map[string]any, error) {
+	return cloudBodySeed(c, fields, cloudSeed())
+}
+
+// cloudBodySeed is cloudBody under a key the caller names, which a test
+// knows and the service never does.
+func cloudBodySeed(c *Client, fields map[string]any, seed string) (map[string]any, error) {
+	sum := md5Hex(seed)
+	cipher, err := aesCBCEncrypt([]byte("{"+quote("token")+":"+quote(c.Token)+"}"),
+		[]byte(sum[:16]), []byte(sum[16:32]))
+	if err != nil {
+		return nil, err
+	}
+	key, err := c.rsaSealPKCS1Key([]byte(seed))
+	if err != nil {
+		return nil, err
+	}
+	fields["userid"] = c.UserID
+	fields["enckey"] = strings.ToUpper(key)
+	fields["encstr"] = base64.StdEncoding.EncodeToString(cipher)
+	return fields, nil
 }
 
 func userListFrom(l map[string]any) UserList {
@@ -61,6 +191,7 @@ func userListFrom(l map[string]any) UserList {
 		Default:      pickInt(l, "is_default", "is_def", "def", "is_my_like", "like") == 1,
 		Pic:          listCover(pickString(l, "sizable_cover", "pic", "imgurl", "create_user_pic")),
 		Count:        int(pickInt(l, "songcount", "count", "list_count", "total")),
+		Sort:         int(pickInt(l, "sort")),
 		Creator:      pickString(l, "list_create_username", "nickname", "username"),
 		CollectionID: pickString(l, "global_collection_id", "gid", "list_create_gid"),
 	}
@@ -320,19 +451,38 @@ func CreateList(c *Client, name string) (int64, error) {
 }
 
 // RenameList gives one of the listener's playlists a new name.
-func RenameList(c *Client, listid int64, name string) error {
-	return cloudSend(c, "/v1/modify_list", map[string]any{
-		"total_ver": 0, "listid": listid, "type": 0, "sort": 0,
-		"tags": "", "intro": "", "name": name,
-	}, false, &empty{})
+func RenameList(c *Client, listid int64, typ int, name string) error {
+	return modifyList(c, 0, heldList(c, listid, typ), map[string]any{"name": name}, &empty{})
+}
+
+// heldList reads one of the listener's lists as the service holds it: a
+// write names the place a list is in, so it has to know that place.
+func heldList(c *Client, listid int64, typ int) UserList {
+	if lists, _, err := MyListsVersion(c); err == nil {
+		for _, l := range lists {
+			if l.ID == listid {
+				return l
+			}
+		}
+	}
+	return UserList{ID: listid, Type: typ}
 }
 
 // DelList deletes one of the listener's playlists, or unsaves a playlist
-// they saved: both are a listid going away.
+// they saved: both are a listid going away. The delete service reads the
+// token as it is, unlike the ones that change a list.
 func DelList(c *Client, listid int64, typ int) error {
-	return cloudSend(c, "/v2/delete_list", map[string]any{
-		"listid": listid, "total_ver": 0, "type": typ,
-	}, true, &empty{})
+	if !c.SignedIn() {
+		return ErrNoSession
+	}
+	return c.send("POST", request{
+		Path:   "/cloudlist.service/v3/delete_list",
+		Params: cloudParams(),
+		Body: map[string]any{
+			"userid": c.UserID, "token": c.Token, "listid": listid,
+			"total_ver": 0, "type": typ,
+		},
+	}, &empty{})
 }
 
 // CollectList saves someone else's playlist for the listener.
@@ -354,72 +504,6 @@ func CollectList(c *Client, name, collectionID string) error {
 type empty struct{}
 
 func (e *empty) UnmarshalJSON(b []byte) error { return nil }
-
-// cloudSend is one call to the cloud list service that is sealed on the wire
-// as well as signed: the body goes AES-encrypted under a key of this call's
-// own, and the key travels RSA-encrypted in "p". The answer comes back the
-// same way, base64 or raw depending on the endpoint.
-func cloudSend(c *Client, path string, body any, b64 bool, out any) error {
-	if !c.SignedIn() {
-		return ErrNoSession
-	}
-	aes := strings.ToLower(randomKey(6))
-	sum := md5Hex(aes)
-	plain, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	cipher, err := aesCBCEncrypt(plain, []byte(sum[:16]), []byte(sum[16:32]))
-	if err != nil {
-		return err
-	}
-	payload := string(cipher)
-	if b64 {
-		payload = base64.StdEncoding.EncodeToString(cipher)
-	}
-	p, err := rsaSealPKCS1([]byte("{" + quote("aes") + ":" + quote(aes) +
-		"," + quote("uid") + ":" + quote(strconv.FormatInt(c.UserID, 10)) +
-		"," + quote("token") + ":" + quote(c.Token) + "}"))
-	if err != nil {
-		return err
-	}
-	ct := strconv.FormatInt(now(), 10)
-	params := map[string]string{
-		"appid": c.appID(), "clientver": c.clientVer(), "mid": c.Dev.MID, "dfid": c.Dev.DFID,
-		"clienttime": ct, "key": c.signKey(ct), "p": p,
-	}
-	if b64 {
-		params["last_area"], params["last_time"] = "gztx", ct
-	}
-	raw, err := c.do("POST", call{
-		Path:   path,
-		Router: "cloudlist.service.kugou.com",
-		Params: params,
-		Body:   payload,
-		Type:   "application/json;charset=utf-8",
-		Raw:    true,
-	})
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(unsealAnswer(raw, sum), out)
-}
-
-// unsealAnswer opens the cloud service's answer, which arrives as the AES
-// ciphertext in hex, as raw bytes, or as JSON when the service chose not to
-// bother.
-func unsealAnswer(raw []byte, sum string) []byte {
-	key, iv := []byte(sum[:16]), []byte(sum[16:32])
-	if plain, err := aesCBCDecrypt(raw, key, iv); err == nil && json.Valid(plain) {
-		return plain
-	}
-	if decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(raw))); err == nil {
-		if plain, err := aesCBCDecrypt(decoded, key, iv); err == nil && json.Valid(plain) {
-			return plain
-		}
-	}
-	return raw
-}
 
 // firstArray finds the first list of things in v, under one of the names the
 // service uses for it.

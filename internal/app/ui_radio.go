@@ -2,7 +2,9 @@ package app
 
 import (
 	"math/rand/v2"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -11,9 +13,22 @@ import (
 )
 
 // Radios play on without end: the personal FM, in one of its modes, as
-// "fm:<mode>", and the heart mode of the liked songs, as "heart".
+// "fm:<mode>", the heart mode of the liked songs, as "heart", the songs like
+// one song, as "similar:<id>", and a scene's, as "scene:<id>".
 
-const heartRadio = "heart"
+const (
+	heartRadio = "heart"
+	// similarAt and sceneAt name the radios that begin with something: the
+	// song they go on from, and the scene they play.
+	similarAt = "similar:"
+	sceneAt   = "scene:"
+)
+
+// The calls the radios go on with; tests replace them.
+var (
+	similarRadioSongs = netease.SimilarRadio
+	sceneRadioSongs   = netease.SceneRadio
+)
 
 var fmModes = []struct{ mode, label string }{
 	{netease.FMDefault, "推荐"},
@@ -23,10 +38,20 @@ var fmModes = []struct{ mode, label string }{
 
 func fmRadio(mode string) string { return "fm:" + mode }
 
+func similarRadio(id int64) string { return similarAt + strconv.FormatInt(id, 10) }
+
+func sceneRadio(id int64) string { return sceneAt + strconv.FormatInt(id, 10) }
+
 // radioLabel names a radio as the listener knows it.
 func radioLabel(name string) string {
 	if name == heartRadio {
 		return "心动模式"
+	}
+	if strings.HasPrefix(name, similarAt) {
+		return "相似歌曲"
+	}
+	if strings.HasPrefix(name, sceneAt) {
+		return "场景电台"
 	}
 	for _, m := range fmModes {
 		if name == fmRadio(m.mode) {
@@ -60,12 +85,27 @@ func (a *app) likedPlaylist() int64 {
 // on a goroutine, and gives them to got on the main thread, none if it
 // cannot.
 func (a *app) radioFeed(name string) func(got func([]netease.Track)) {
+	// A scene's songs come a page at a time, and the page it is on is the
+	// radio's to keep, past the one feed that reads it.
+	var scenePage atomic.Int64
 	return func(got func([]netease.Track)) {
 		var fetch func() ([]netease.Track, error)
 		switch {
 		case strings.HasPrefix(name, "fm:"):
 			mode := strings.TrimPrefix(name, "fm:")
 			fetch = func() ([]netease.Track, error) { return netease.PersonalFM(mode) }
+		case strings.HasPrefix(name, similarAt):
+			// The personal FM, seeded by the song it goes on from: it
+			// answers a handful at a time, for as long as it is asked.
+			id, _ := strconv.ParseInt(strings.TrimPrefix(name, similarAt), 10, 64)
+			fetch = func() ([]netease.Track, error) { return similarRadioSongs(id) }
+		case strings.HasPrefix(name, sceneAt):
+			// A scene's radio: its songs come a page at a time, and the
+			// page it is on is this feed's to keep.
+			id, _ := strconv.ParseInt(strings.TrimPrefix(name, sceneAt), 10, 64)
+			fetch = func() ([]netease.Track, error) {
+				return sceneRadioSongs(id, int(scenePage.Add(1)))
+			}
 		case name == heartRadio:
 			// More like the last song queued, from the song it began with.
 			q, pid := a.pl.Queue(), a.likedPlaylist()
@@ -116,6 +156,72 @@ func (a *app) playFM() {
 			return
 		}
 		a.pl.PlayRadio(name, tracks, feed)
+	})
+}
+
+// playSimilar plays what sounds like tr, and goes on with more of it: the
+// radio is seeded by the song, so the queue continues from where the
+// listener is rather than from their taste at large.
+func (a *app) playSimilar(tr *netease.Track) {
+	if tr.Local() || tr.Cloud || tr.ProgramID != 0 {
+		a.toast = "这首歌暂时找不到相似的歌"
+		return
+	}
+	name := similarRadio(tr.ID)
+	if a.pl.Radio() == name {
+		a.nowPlaying = true
+		if !a.pl.Playing() {
+			a.pl.TogglePlay()
+		}
+		return
+	}
+	a.radioStarting = name
+	feed := a.radioFeed(name)
+	feed(func(more []netease.Track) {
+		if a.radioStarting != name {
+			return
+		}
+		a.radioStarting = ""
+		if len(more) == 0 {
+			a.toast = "暂时找不到相似的歌，请稍后再试"
+			return
+		}
+		// The song it goes on from may be the one playing: the queue then
+		// keeps it, and what it plays next are the songs like it.
+		if cur := a.pl.Current(); cur != nil && cur.ID == tr.ID {
+			a.pl.RadioFrom(name, more, feed)
+		} else {
+			a.pl.PlayRadio(name, append([]netease.Track{*tr}, more...), feed)
+		}
+		a.nowPlaying = true
+	})
+}
+
+// playScene plays a scene's radio, which goes on page after page.
+func (a *app) playScene(s netease.Scene) {
+	name := sceneRadio(s.ID)
+	if a.pl.Radio() == name {
+		a.nowPlaying = true
+		if !a.pl.Playing() {
+			a.pl.TogglePlay()
+		}
+		return
+	}
+	a.radioStarting = name
+	// One feed, read once for the first songs and then kept by the radio:
+	// a scene's feed counts the pages it has read.
+	feed := a.radioFeed(name)
+	feed(func(tracks []netease.Track) {
+		if a.radioStarting != name {
+			return
+		}
+		a.radioStarting = ""
+		if len(tracks) == 0 {
+			a.toast = s.Title + "暂时无法播放，请稍后再试"
+			return
+		}
+		a.pl.PlayRadio(name, tracks, feed)
+		a.nowPlaying = true
 	})
 }
 
@@ -212,6 +318,7 @@ func (a *app) fmPage(c *ui.Context) {
 	ui.Scroll(c.Key("fm")).TrackScroll(&a.pageScroll).Grow(1).Padding(top+pageGap, pagePad, bottom+48, pagePad).ScrollbarInsets(top, 0, bottom, 0).Children(func() {
 		a.startMark(c)
 		defer a.endMark(c)
+		a.loadScenes()
 		// The mode the FM plays in, if it plays.
 		for i, m := range fmModes {
 			if a.pl.Radio() == fmRadio(m.mode) {
@@ -238,6 +345,8 @@ func (a *app) fmPage(c *ui.Context) {
 		a.fmCard(c)
 		a.section(c, "心动模式")
 		a.heartCard(c, p)
+		a.section(c, "场景电台")
+		a.sceneCards(c)
 	})
 }
 

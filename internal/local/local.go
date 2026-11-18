@@ -25,10 +25,12 @@ const (
 	FormatFLAC = "FLAC"
 	FormatOgg  = "OGG"
 	FormatWAV  = "WAV"
+	FormatM4A  = "M4A"
+	FormatALAC = "ALAC"
+	FormatOpus = "OPUS"
 )
 
-// ErrFormat reports a file of a format the app does not read, as one of
-// the formats Apple sells is.
+// ErrFormat reports a file of a format the app does not read.
 var ErrFormat = errors.New("local: a file of a format the app does not play")
 
 // A Track is a song found in a folder of the listener's.
@@ -47,8 +49,8 @@ type Track struct {
 	TrackNo, DiscNo int
 	// Length is how long it plays, as its file says.
 	Length time.Duration
-	// Format is the file's format: FormatMP3, FormatFLAC, FormatOgg or
-	// FormatWAV.
+	// Format is the file's format: FormatMP3, FormatFLAC, FormatOgg,
+	// FormatWAV, FormatM4A, FormatALAC or FormatOpus.
 	Format string
 	// Cover is the album's picture, when the file holds one. Scan leaves
 	// it out: a library of thousands would keep a hundred pictures each.
@@ -78,8 +80,10 @@ func Read(path string) (Track, error) {
 		m, err = readMP3(f, st.Size())
 	case ".flac":
 		m, err = readFLAC(f, st.Size())
-	case ".ogg", ".oga":
+	case ".ogg", ".oga", ".opus":
 		m, err = readOgg(f, st.Size())
+	case ".m4a", ".mp4", ".m4b":
+		m, err = readM4A(f, st.Size())
 	case ".wav":
 		m, err = readWAV(f, st.Size())
 	default:
@@ -285,7 +289,7 @@ func folderCover(dir string) []byte {
 // playable reports whether the file of this name is one the app plays.
 func playable(name string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {
-	case ".mp3", ".flac", ".ogg", ".oga", ".wav":
+	case ".mp3", ".flac", ".ogg", ".oga", ".wav", ".opus", ".m4a", ".mp4", ".m4b":
 		return true
 	}
 	return false
@@ -295,7 +299,7 @@ func playable(name string) bool {
 // the app plays or of one it does not, as a skip counts.
 func audioName(name string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {
-	case ".mp3", ".flac", ".ogg", ".oga", ".wav", ".m4a", ".aac", ".wma", ".ape", ".opus", ".aiff", ".dsf":
+	case ".mp3", ".flac", ".ogg", ".oga", ".wav", ".m4a", ".mp4", ".m4b", ".aac", ".wma", ".ape", ".opus", ".aiff", ".dsf":
 		return true
 	}
 	return false

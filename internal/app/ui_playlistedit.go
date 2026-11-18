@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"netease-music-mygo/internal/netease"
@@ -21,7 +22,70 @@ var (
 	removeFromPlaylist = netease.RemoveFromPlaylist
 	deletePlaylist     = netease.DeletePlaylist
 	savePlaylist       = netease.SubscribePlaylist
+	movePlaylist       = netease.MovePlaylist
+	setPlaylistCover   = netease.SetPlaylistCover
 )
+
+// movePlaylistOrder moves one of the listener's playlists up or down among
+// those of its kind, then shows the sidebar as the service left it.
+func (a *app) movePlaylistOrder(id int64, up bool) {
+	go func() {
+		_, err := movePlaylist(id, up)
+		a.post(func() {
+			if err != nil {
+				a.toast = "排序失败，请稍后再试"
+				return
+			}
+			if a.profile != nil {
+				a.loadMine(a.profile.UserID)
+			}
+		})
+	}()
+}
+
+// changeCover asks for a picture to use as a playlist's cover, puts it on
+// KuGou's image host, and gives the playlist that cover.
+func (a *app) changeCover(id int64) {
+	go func() {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Title:       "选择歌单封面",
+			ButtonLabel: "使用",
+			Filters: []mygo.FileFilter{{
+				Name:       "图片",
+				Extensions: []string{"jpg", "jpeg", "png", "webp", "gif", "bmp"},
+			}},
+		})
+		if err != nil || len(paths) == 0 {
+			return
+		}
+		cover, err := setPlaylistCover(id, paths[0])
+		a.post(func() {
+			if err != nil {
+				a.toast = "更换封面失败，请稍后再试"
+				return
+			}
+			a.toast = "封面已更换"
+			a.setCover(id, cover)
+		})
+	}()
+}
+
+// setCover gives a playlist the cover the service now serves for it.
+func (a *app) setCover(id int64, cover string) {
+	for i := range a.mine {
+		if a.mine[i].ID == id {
+			a.mine[i].CoverURL, a.mine[i].PicURL = cover, cover
+		}
+	}
+	for i := range a.saved {
+		if a.saved[i].ID == id {
+			a.saved[i].CoverURL, a.saved[i].PicURL = cover, cover
+		}
+	}
+	if pl := a.playlists[id]; pl != nil {
+		pl.CoverURL, pl.PicURL = cover, cover
+	}
+}
 
 // nameDialog asks for a playlist's name: a new one's, or one's new name.
 type nameDialog struct {

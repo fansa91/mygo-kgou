@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -224,6 +225,218 @@ func main() {
 		}
 		for i, w := range words {
 			fmt.Printf("%2d. %s\n", i+1, w)
+		}
+
+	case "scenes":
+		// The scenes KuGou's radio is built from.
+		list, err := kugou.Scenes(client)
+		if err != nil {
+			fail(err)
+		}
+		for _, s := range list {
+			fmt.Printf("%3d %-10s %-8s %-24s %6d songs\n", s.ID, s.Title, s.Popup, s.Label, s.Songs)
+		}
+
+	case "scene":
+		// go run ./cmd/kgtest scene <id> [page]
+		if len(os.Args) < 3 {
+			usage()
+		}
+		page := 1
+		if len(os.Args) > 4 {
+			page = int(mustInt(os.Args[4]))
+		}
+		songs, err := kugou.SceneSongs(client, mustInt(os.Args[2]), page, 10)
+		if err != nil {
+			fail(err)
+		}
+		for i, s := range songs {
+			fmt.Printf("%2d. %-30s %-16s %d:%02d\n", i+1, s.Name, s.Singer, s.Duration/60000, s.Duration/1000%60)
+		}
+
+	case "ranking":
+		// go run ./cmd/kgtest ranking 晴天
+		if len(os.Args) < 3 {
+			usage()
+		}
+		t := firstSong(client, os.Args[2])
+		rec, err := kugou.SongRanking(client, t.AlbumAudioID)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("%s - %s\n%s\n%s\n", t.Singer, t.Name, rec.Title, rec.Note)
+		for _, p := range rec.Platforms {
+			fmt.Printf("  %-12s 最高第%d名  在榜 %d 次  %s\n", p.Name, p.Rank, p.Times, p.Last)
+		}
+
+	case "vols":
+		// go run ./cmd/kgtest vols <rankid>
+		if len(os.Args) < 3 {
+			usage()
+		}
+		list, err := kugou.RankVols(client, mustInt(os.Args[2]))
+		if err != nil {
+			fail(err)
+		}
+		for i, v := range list {
+			if i >= 12 {
+				break
+			}
+			fmt.Printf("%10d %-10s %s\n", v.ID, v.Name, v.Date)
+		}
+		fmt.Printf("%d numbers in all\n", len(list))
+
+	case "vol":
+		// go run ./cmd/kgtest vol <rankid> <volid>
+		if len(os.Args) < 4 {
+			usage()
+		}
+		songs, total, err := kugou.RankSongsAt(client, mustInt(os.Args[2]), mustInt(os.Args[3]), 1, 5)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("total=%d\n", total)
+		for _, s := range songs {
+			fmt.Printf("  %-30s %s\n", s.Name, s.Singer)
+		}
+
+	case "hotword":
+		// go run ./cmd/kgtest hotword 晴天
+		if len(os.Args) < 3 {
+			usage()
+		}
+		t := firstSong(client, os.Args[2])
+		words, err := kugou.CommentHotWords(client, t.AlbumAudioID)
+		if err != nil {
+			fail(err)
+		}
+		for i, w := range words {
+			if i >= 12 {
+				break
+			}
+			fmt.Printf("%2d. %-12s %d\n", i+1, w.Word, w.Count)
+		}
+
+	case "hotcmt":
+		// go run ./cmd/kgtest hotcmt 晴天 青春
+		if len(os.Args) < 4 {
+			usage()
+		}
+		t := firstSong(client, os.Args[2])
+		page, err := kugou.CommentsByWord(client, t.AlbumAudioID, os.Args[3], 1, 3)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("total=%d\n", page.Total)
+		for _, m := range page.List {
+			fmt.Printf("  %-14s 赞%d %s\n", m.UserName, m.Likes, short(m.Content, 40))
+		}
+
+	case "listnew":
+		// go run ./cmd/kgtest listnew <name>
+		if len(os.Args) < 3 {
+			usage()
+		}
+		id, err := kugou.CreateList(client, os.Args[2])
+		if err != nil {
+			fail(err)
+		}
+		fmt.Println("created list", id)
+
+	case "listdel":
+		// go run ./cmd/kgtest listdel <listid> [type]
+		if len(os.Args) < 3 {
+			usage()
+		}
+		typ := 0
+		if len(os.Args) > 3 {
+			typ = int(mustInt(os.Args[3]))
+		}
+		if err := kugou.DelList(client, mustInt(os.Args[2]), typ); err != nil {
+			fail(err)
+		}
+		fmt.Println("deleted list", os.Args[2])
+
+	case "listsort":
+		// go run ./cmd/kgtest listsort <listid> up|down
+		if len(os.Args) < 4 {
+			usage()
+		}
+		id := mustInt(os.Args[2])
+		lists, ver, err := kugou.MyListsVersion(client)
+		if err != nil {
+			fail(err)
+		}
+		var typ int
+		var same []kugou.UserList
+		at := -1
+		for _, l := range lists {
+			if l.ID == id {
+				typ = l.Type
+			}
+		}
+		for _, l := range kugou.OrderedLists(lists) {
+			if l.Type != typ || strings.Contains(l.Name, "我喜欢") {
+				continue
+			}
+			same = append(same, l)
+		}
+		for i, l := range same {
+			if l.ID == id {
+				at = i
+			}
+		}
+		if at < 0 {
+			fail(errors.New("list not found"))
+		}
+		to := at - 1
+		if os.Args[3] == "down" {
+			to = at + 1
+		}
+		if to < 0 || to >= len(same) {
+			fmt.Println("already at that end")
+			return
+		}
+		same[at], same[to] = same[to], same[at]
+		if err := kugou.SortLists(client, ver, same); err != nil {
+			fail(err)
+		}
+		fmt.Printf("total_ver=%d\n", ver)
+		for _, l := range same {
+			fmt.Printf("  %-24s %d\n", l.Name, l.ID)
+		}
+
+	case "listcover":
+		// go run ./cmd/kgtest listcover <listid> <file>
+		if len(os.Args) < 4 {
+			usage()
+		}
+		data, err := os.ReadFile(os.Args[3])
+		if err != nil {
+			fail(err)
+		}
+		name, err := kugou.UploadCover(client, data, strings.TrimPrefix(filepath.Ext(os.Args[3]), "."))
+		if err != nil {
+			fail(err)
+		}
+		fmt.Println("uploaded as", name)
+		lists, ver, err := kugou.MyListsVersion(client)
+		if err != nil {
+			fail(err)
+		}
+		var list kugou.UserList
+		for _, l := range lists {
+			if l.ID == mustInt(os.Args[2]) {
+				list = l
+			}
+		}
+		if list.ID == 0 {
+			fail(errors.New("list not found"))
+		}
+		if cover, err := kugou.SetListCover(client, ver, list, name); err != nil {
+			fail(err)
+		} else {
+			fmt.Println("cover set on", list.Name, "as", cover)
 		}
 
 	case "search":
@@ -505,7 +718,7 @@ func main() {
 			if l.Default || strings.Contains(l.Name, "我喜欢") {
 				mark = "  <- the liked songs"
 			}
-			fmt.Printf("%-12d %-6s %-24s %4d songs%s\n", l.ID, kind, l.Name, l.Count, mark)
+			fmt.Printf("%-12d %-6s %-24s %4d songs sort=%-3d%s\n", l.ID, kind, l.Name, l.Count, l.Sort, mark)
 		}
 
 	case "liked":
@@ -639,8 +852,11 @@ func usage() {
 		"       comments <keyword> [page] | say <keyword> <content> | del <keyword> <commentId> |\n"+
 		"       answer <keyword> <commentId> <content> | hot [tab] |\n"+
 		"       cloud [page] | cloudurl <n> | cloudup <file> | clouddel <n> |\n"+
+		"       scenes | scene <id> [page] | ranking <keyword> |\n"+
+		"       vols <rankid> | vol <rankid> <volid> | hotword <keyword> | hotcmt <keyword> <word> |\n"+
 		"       get <router|-> <path> k=v... | login <mobile> | verify <mobile> <code> | me |\n"+
-		"       lists | liked | like <keyword> | unlike <keyword>")
+		"       lists | liked | like <keyword> | unlike <keyword> |\n"+
+		"       listnew <name> | listdel <listid> [type] | listsort <listid> up|down | listcover <listid> <file>")
 	os.Exit(2)
 }
 
