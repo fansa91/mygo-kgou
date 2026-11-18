@@ -34,6 +34,7 @@ var (
 	iconDown      = strokeIcon(`<path d="m6 9 6 6 6-6"/>`)
 	iconDownload  = strokeIcon(`<path d="M12 3v11"/><path d="m7 9 5 5 5-5"/><path d="M4 19h16"/>`)
 	iconFolder    = strokeIcon(`<path d="M3 7.5a2 2 0 0 1 2-2h5l2 2.5h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>`)
+	iconCloud     = strokeIcon(`<path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 9.5a3.5 3.5 0 0 1 .5 8.5z"/>`)
 	iconBack      = strokeIcon(`<path d="m15 18-6-6 6-6"/>`)
 	iconForward   = strokeIcon(`<path d="m9 18 6-6-6-6"/>`)
 	iconNote      = strokeIcon(`<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>`)

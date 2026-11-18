@@ -55,6 +55,13 @@ type Track struct {
 	// plays from the file rather than from KuGou: its tags say what it is,
 	// and its words and picture come from it too.
 	Path string `json:"path,omitempty"`
+	// Cloud marks a file of the listener's music cloud, which plays from the
+	// cloud's own tracker rather than the catalogue's. CloudName is the name
+	// it has there, extension and all, which the tracker asks for with the
+	// hash; Size is how big the file is, as the cloud listed it.
+	Cloud     bool   `json:"cloud,omitempty"`
+	CloudName string `json:"cloudName,omitempty"`
+	Size      int64  `json:"size,omitempty"`
 	// VIP marks a song that is sold by subscription. It is apart from
 	// playability on purpose: the 概念版 may play one at standard quality,
 	// and the row still says why it is not on the free tier.
@@ -79,7 +86,7 @@ func (t *Track) Local() bool { return t.Path != "" }
 // that in Privilege, so a song the app greys out is one KuGou would refuse to
 // stream in full.
 func (t *Track) Playable() bool {
-	if t.Local() {
+	if t.Local() || t.Cloud {
 		return true
 	}
 	if t.ProgramID > 0 {

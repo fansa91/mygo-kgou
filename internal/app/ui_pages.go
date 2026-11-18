@@ -455,7 +455,8 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 				})
 			}
 			// A liked song's heart shows; the others' as the pointer is on them.
-			// A song of the local library has no heart: its file shows.
+			// A song of the local library has no heart: its file shows. One of
+			// the cloud has none either: KuGou keeps no like of it.
 			ui.Box(c).Size(32, 32).Center().Children(func() {
 				switch {
 				case tr.Local():
@@ -465,6 +466,9 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 							revealPath(tr.Path)
 						}
 					}
+				case tr.Cloud:
+					// A cloud file keeps no like of KuGou's, and no folder of
+					// the listener's to reveal.
 				case a.liked[tr.ID] || hovered:
 					a.likeButton(c.Key("like"), tr, 15, p.muted)
 				}

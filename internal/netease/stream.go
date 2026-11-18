@@ -50,6 +50,11 @@ func SongURL(id int64, level string) (*Stream, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A file of the listener's cloud plays from the cloud's tracker, at the
+	// quality it was uploaded at: there is no other to ask for.
+	if st, ok, err := cloudStream(c, id); ok {
+		return st, err
+	}
 	t, ok := app.index.Track(id)
 	if !ok {
 		return nil, ErrUnavailable

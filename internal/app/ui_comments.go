@@ -74,7 +74,7 @@ func (cs *commentState) activePage() *commentPage {
 // pane's tab.
 func (a *app) commentsFor(tr *netease.Track) *commentState {
 	cs := &a.comments
-	if tr.Local() {
+	if tr.Local() || tr.Cloud {
 		// A file of the listener's own is on no service, and has nothing
 		// to ask for.
 		*cs = commentState{}

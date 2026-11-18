@@ -29,6 +29,10 @@ func (a *app) songItems(tr *netease.Track, pid int64) func(m *ui.Menu) {
 			a.localItems(m, tr)
 			return
 		}
+		if tr.Cloud {
+			a.cloudItems(m, tr)
+			return
+		}
 		if tr.ProgramID != 0 {
 			a.programItems(m, tr)
 			return

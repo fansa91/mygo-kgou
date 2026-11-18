@@ -27,6 +27,7 @@ const (
 	pagePodcasts
 	pageDownloads
 	pageLocal
+	pageCloud
 )
 
 type route struct {
@@ -98,6 +99,15 @@ type app struct {
 	localScanned    time.Time
 	localScannedDir string // the folder the songs came from
 	localFilter     string
+	// The music cloud: the files the listener put there themselves, how many
+	// there are, and what the page filters them by. Uploading one says which
+	// of how many is going.
+	cloudTracks  []netease.Track
+	cloudTotal   int
+	cloudLoading bool
+	cloudErr     string
+	cloudFilter  string
+	cloudBusy    string // "" when nothing is uploading
 	// Where the page and the sidebar are scrolled, kept while Now Playing
 	// covers them, unbuilt.
 	pageScroll ui.ScrollState

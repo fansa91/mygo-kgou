@@ -161,6 +161,25 @@ func init() {
 				mygo.RunOnMain(mygo.App.Quit)
 				return
 			}
+			if os.Getenv("NM_SCENE") == "cloud" {
+				// The music cloud as the page lists it, then the first of its
+				// songs playing, muted.
+				time.Sleep(4 * time.Second)
+				step(0, func() { a.open(route{page: pageCloud}) })
+				time.Sleep(5 * time.Second)
+				shot("k-cloud", a.win)
+				step(0, func() {
+					if songs := a.cloudShown(); len(songs) > 0 {
+						a.volume = 0
+						a.pl.SetVolume(0)
+						a.pl.PlayQueue(songs, 0)
+					}
+				})
+				time.Sleep(6 * time.Second)
+				shot("k-cloud-playing", a.win)
+				mygo.RunOnMain(mygo.App.Quit)
+				return
+			}
 			if os.Getenv("NM_SCENE") == "readme" {
 				// The README's pictures. Who is signed in and their own
 				// playlists are cleared first, so the pictures show the app

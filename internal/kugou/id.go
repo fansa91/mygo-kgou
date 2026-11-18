@@ -35,6 +35,14 @@ type Known struct {
 	Year         string `json:"year,omitempty"`
 	TrackNo      int    `json:"track_no,omitempty"`
 	DiscNo       int    `json:"disc_no,omitempty"`
+	// Cloud marks a file of the listener's music cloud, which plays from the
+	// cloud tracker rather than the catalogue. CloudName is the file's name
+	// there, which the tracker asks for with the hash; AudioID and FileID
+	// are the numbers it and the delete know the file by.
+	Cloud     bool   `json:"cloud,omitempty"`
+	CloudName string `json:"cloud_name,omitempty"`
+	AudioID   int64  `json:"audio_id,omitempty"`
+	FileID    int64  `json:"file_id,omitempty"`
 }
 
 // Index remembers the songs that have been seen, so a song can be played by
@@ -91,6 +99,53 @@ func (x *Index) Remember(t Track) int64 {
 		x.save()
 	}
 	return id
+}
+
+// RememberCloud notes a file of the listener's music cloud and answers the
+// number the app calls it, which its hash gives, as a catalogue song's is
+// given: a file that came from KuGou's catalogue and one the cloud holds are
+// the same recording, and share the number.
+func (x *Index) RememberCloud(s CloudSong) int64 {
+	id := SongID(s.Hash)
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	known := x.byID[id]
+	known.Hash = s.Hash
+	known.Cloud = true
+	known.CloudName = s.Name
+	known.AudioID = s.AudioID
+	known.FileID = s.FileID
+	if s.AlbumAudioID != 0 {
+		known.AlbumAudioID = s.AlbumAudioID
+	}
+	if name := s.Title(); name != "" {
+		known.Name = name
+	}
+	if s.Singer != "" {
+		known.Singer = s.Singer
+	}
+	if known != x.byID[id] {
+		x.byID[id] = known
+		x.save()
+	}
+	return id
+}
+
+// CloudFile finds the cloud's file a number names, for playing it or taking
+// it out of the cloud.
+func (x *Index) CloudFile(id int64) (CloudSong, bool) {
+	k, ok := x.Lookup(id)
+	if !ok || !k.Cloud {
+		return CloudSong{}, false
+	}
+	return CloudSong{
+		FileID:       k.FileID,
+		AudioID:      k.AudioID,
+		AlbumAudioID: k.AlbumAudioID,
+		Hash:         k.Hash,
+		Name:         k.CloudName,
+		Singer:       k.Singer,
+	}, true
 }
 
 // Lookup finds what a number names.

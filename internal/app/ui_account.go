@@ -157,6 +157,9 @@ func (a *app) signedIn(prof *netease.Profile) {
 	a.restoreSession()
 	a.mine, a.saved, a.recPlaylists, a.liked = nil, nil, nil, nil
 	a.likedPrograms, a.askedPrograms = nil, nil
+	// The cloud belongs to the account that just came or went: its page is
+	// read again, or emptied.
+	a.cloudTracks, a.cloudTotal, a.cloudErr, a.cloudFilter = nil, 0, "", ""
 	// What the listener may play, and follows, changed: load the pages
 	// again.
 	a.playlists = map[int64]*netease.Playlist{}

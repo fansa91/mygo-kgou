@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"netease-music-mygo/internal/kugou"
+	"netease-music-mygo/internal/local"
 )
 
 func main() {
@@ -137,6 +138,78 @@ func main() {
 			fail(err)
 		}
 		fmt.Println(indent(raw))
+
+	case "cloud":
+		// The listener's music cloud, as the app's page lists it.
+		page := 1
+		if len(os.Args) > 2 {
+			fmt.Sscan(os.Args[2], &page)
+		}
+		songs, total, err := kugou.CloudSongs(client, page, 100)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("%d songs in the cloud\n", total)
+		for i, s := range songs {
+			fmt.Printf("%3d. %-40s %-12s %6.1f MB  file=%d audio=%d\n",
+				i+1, s.Title(), s.Singer, float64(s.Size)/(1<<20), s.FileID, s.AudioID)
+		}
+
+	case "cloudurl":
+		// Where the cloud streams a song of the list, by the number the
+		// cloud page gave it.
+		if len(os.Args) < 3 {
+			usage()
+		}
+		var n int
+		fmt.Sscan(os.Args[2], &n)
+		songs, _, err := kugou.CloudSongs(client, 1, 100)
+		if err != nil {
+			fail(err)
+		}
+		if n < 1 || n > len(songs) {
+			fail(fmt.Errorf("no song %d", n))
+		}
+		st, err := kugou.CloudURL(client, songs[n-1])
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("%s\n%s\n%d bytes, %s\n", songs[n-1].Title(), st.URL, st.Size, st.Type)
+
+	case "cloudup":
+		// Putting a file in the cloud, as the page's upload does: its tags
+		// become the song's credits, and its name when it has none.
+		if len(os.Args) < 3 {
+			usage()
+		}
+		f := kugou.CloudFile{Path: os.Args[2]}
+		if t, err := local.Read(f.Path); err == nil {
+			f.Name, f.Singer, f.Duration = t.Name, t.Artist, t.Length.Milliseconds()
+		}
+		s, err := kugou.CloudUpload(client, f)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("uploaded %s (hash %s, %d bytes)\n", s.Title(), s.Hash, s.Size)
+
+	case "clouddel":
+		// Taking a song of the list out of the cloud, by its number there.
+		if len(os.Args) < 3 {
+			usage()
+		}
+		var n int
+		fmt.Sscan(os.Args[2], &n)
+		songs, _, err := kugou.CloudSongs(client, 1, 100)
+		if err != nil {
+			fail(err)
+		}
+		if n < 1 || n > len(songs) {
+			fail(fmt.Errorf("no song %d", n))
+		}
+		if err := kugou.CloudDelete(client, songs[n-1:n]); err != nil {
+			fail(err)
+		}
+		fmt.Println("deleted", songs[n-1].Title())
 
 	case "hot":
 		// The words KuGou puts on its search box's board, as the app's
@@ -565,6 +638,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: kgtest register | search <keyword> | play <keyword> [level] | lyric <keyword> |\n"+
 		"       comments <keyword> [page] | say <keyword> <content> | del <keyword> <commentId> |\n"+
 		"       answer <keyword> <commentId> <content> | hot [tab] |\n"+
+		"       cloud [page] | cloudurl <n> | cloudup <file> | clouddel <n> |\n"+
 		"       get <router|-> <path> k=v... | login <mobile> | verify <mobile> <code> | me |\n"+
 		"       lists | liked | like <keyword> | unlike <keyword>")
 	os.Exit(2)

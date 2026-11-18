@@ -117,7 +117,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 		a.npPane = paneProgram
 	case !program && (a.npPane == paneProgram || a.npPane == paneCaptions):
 		a.npPane = a.lyricsPaneChosen()
-	case tr.Local() && a.npPane == paneComments:
+	case (tr.Local() || tr.Cloud) && a.npPane == paneComments:
 		// A file of the listener's own has no comments to read.
 		a.npPane = a.lyricsPaneChosen()
 	}
@@ -180,7 +180,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 					})
 					// A file of the listener's own has no heart: KuGou, which
 					// keeps the likes, knows nothing of it.
-					if !tr.Local() {
+					if !tr.Local() && !tr.Cloud {
 						a.likeButton(c.Key("like"), tr, 22, white.Alpha(0.7))
 					}
 					a.songMenu(c.Key("more"), tr, 22, white.Alpha(0.7)).Margin(0, -8, 0, 0)
@@ -308,7 +308,7 @@ func (a *app) npTabs() []npTab {
 		}
 		return append(tabs, npTab{paneQueue, "待播清单"}, npTab{paneComments, "评论"})
 	}
-	if tr := a.pl.Current(); tr != nil && tr.Local() {
+	if tr := a.pl.Current(); tr != nil && (tr.Local() || tr.Cloud) {
 		// A file has no comments to read, and no artist or album page of
 		// KuGou's to go to.
 		return []npTab{{paneLyrics, "歌词"}, {paneStage, "律动"}, {paneQueue, "待播清单"}, {paneWall, "选歌"}}
@@ -390,7 +390,7 @@ func (a *app) stageBar(c *ui.Context, tr *netease.Track, art *artwork, accent ui
 					ui.Text(c, tr.Name).FontSize(14).FontWeight(700).SingleLine()
 					a.artistLinks(c, tr, white.Alpha(0.55), white).FontSize(12).SingleLine()
 				})
-				if !tr.Local() {
+				if !tr.Local() && !tr.Cloud {
 					a.likeButton(c.Key("like"), tr, 17, white.Alpha(0.6))
 				}
 				a.songMenu(c.Key("more"), tr, 17, white.Alpha(0.6)).Margin(0, 0, 0, -10)
