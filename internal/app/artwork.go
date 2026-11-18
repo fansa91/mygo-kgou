@@ -147,7 +147,9 @@ func (c *artCache) get(url string, backdrop bool) *artwork {
 
 // artRelease is how long a cover keeps its pixels once loaded: past the
 // frame that first shows it, and the smaller copies it shows from there.
-const artRelease = 2 * time.Second
+// The screenshots keep them longer: mygo's capture renders the frame on
+// the CPU, which cannot read a cover whose pixels were dropped.
+var artRelease = 2 * time.Second
 
 // loadArt fetches the cover at url, as a bitmap to draw and an image to
 // measure, with the bytes of its data. A cover of the local library is in

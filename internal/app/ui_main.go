@@ -110,9 +110,18 @@ func (a *app) open(r route) {
 
 // show shows the page of r.
 func (a *app) show(r route) {
+	was := a.route
 	a.route = r
 	if r.page == pageSearch {
 		a.query, a.searched = r.query, r
+		// A search opened from elsewhere, rather than made by the page's
+		// own field, which has already put what was typed there.
+		if r.query != a.live.query {
+			a.live.reset(r.query)
+		}
+	} else if was.page == pageSearch {
+		// Left before the typing paused: what was typed is given up.
+		a.live.reset("")
 	}
 	a.load(r)
 }

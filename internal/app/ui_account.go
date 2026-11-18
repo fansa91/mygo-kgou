@@ -117,6 +117,9 @@ func (a *app) boot() {
 	// The mode decides how every request is signed, so it is set before the
 	// session is restored and before anything is asked of KuGou.
 	netease.SetConcept(a.settings.Concept)
+	// What the day's searches are, for the search field's empty popup,
+	// asked for once and kept for the session.
+	a.loadHotWords()
 	go func() {
 		var prof *netease.Profile
 		if netease.RestoreSession() {

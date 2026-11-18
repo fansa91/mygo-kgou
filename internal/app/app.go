@@ -119,6 +119,9 @@ type app struct {
 	searches    map[route]*searchData // the results of each search, by its page
 	searched    route                 // the search last shown, which the sidebar goes back to
 	suggestions suggestState          // what the search field's query may be after
+	live        liveSearch            // the search page's own field, searched as it is typed
+	hot         []string              // the day's searches, for the empty field's popup
+	hotAsked    bool                  // whether they have been asked for
 
 	nowPlaying  bool
 	npOpen      bool      // Now Playing as it last showed: open or not

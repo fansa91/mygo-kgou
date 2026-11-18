@@ -13,6 +13,37 @@ import (
 // suggestDelay is how long typing pauses before suggestions are asked for.
 const suggestDelay = 220 * time.Millisecond
 
+// hotWords asks KuGou for the day's searches; tests replace it.
+var hotWords = netease.HotWords
+
+// hotListed is how many of the day's searches the popup lists: the first
+// few, which is what a listener with nothing in mind starts from. The rest
+// would push the searches before off the panel.
+const hotListed = 8
+
+// loadHotWords asks for the day's searches, once, for the search field's
+// popup to list while it is empty. They are a suggestion rather than
+// something the listener asked for, so failing says nothing: the popup
+// lists the history alone.
+func (a *app) loadHotWords() {
+	if a.hotAsked {
+		return
+	}
+	a.hotAsked = true
+	go func() {
+		words, err := hotWords()
+		a.post(func() { a.hotWordsLoaded(words, err) })
+	}()
+}
+
+// hotWordsLoaded takes the day's searches, if KuGou named any.
+func (a *app) hotWordsLoaded(words []string, err error) {
+	if err != nil || len(words) == 0 {
+		return
+	}
+	a.hot = words
+}
+
 // suggestState is what a search may be after, as its query is typed.
 type suggestState struct {
 	query   string // what they are for
@@ -105,6 +136,12 @@ func (a *app) searchField(c *ui.Context) {
 		in := cb.Input.Bind(&a.searchBox).Grow(1).MinWidth(0).
 			Placeholder("搜索歌曲、歌手、听书").FontSize(13).Label("搜索")
 		q := strings.TrimSpace(a.query)
+		// On a search's page this field refines it as it is typed, the
+		// same as the one the page has.
+		if in.Changed() && a.route.page == pageSearch {
+			a.live.draft = q
+			a.liveTyped()
+		}
 		s := &a.suggestions
 		switch {
 		case in.Focused() && cb.Open() && q != "":
@@ -112,8 +149,8 @@ func (a *app) searchField(c *ui.Context) {
 		case s.query != "":
 			a.dismissSuggestions()
 		}
-		// Empty, it lists the searches before, if any.
-		if q == "" && len(a.settings.SearchHistory) == 0 {
+		// Empty, it lists the day's searches and the ones before, if any.
+		if q == "" && len(a.settings.SearchHistory) == 0 && len(a.hot) == 0 {
 			cb.SetOpen(false)
 		}
 		cb.Popup(func(panel ui.Element) {
@@ -129,16 +166,46 @@ func (a *app) searchField(c *ui.Context) {
 				return row
 			}
 			if q == "" {
-				panel.Label("搜索历史")
-				ui.Row(c).Padding(2, 4, 2, 10).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, "搜索历史").FontSize(12).TextColor(p.muted).Grow(1)
-					iconButton(c.Key("clear"), iconTrash, 14, p.muted, "清空搜索历史").KeepFocus().OnClick(a.clearSearchHistory)
-				})
-				for _, h := range a.settings.SearchHistory {
-					option("history:"+h, h).Children(func() {
-						ui.Icon(c, iconSearch).Size(13, 13).TextColor(p.muted)
-						ui.Text(c, h).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
+				if len(a.hot) > 0 {
+					ui.Row(c).Padding(2, 4, 2, 8).Children(func() {
+						ui.Text(c, "热搜").FontSize(12).TextColor(p.muted)
 					})
+					// Two to a row, ranked down each column, as many as
+					// the field's popup has room for over the history.
+					ui.Grid(c).Columns(2).GapX(6).GapY(2).Padding(0, 2, 0, 10).Children(func() {
+						for i, w := range a.hot[:min(len(a.hot), hotListed)] {
+							rank := p.faint
+							if i < 3 {
+								rank = p.accent
+							}
+							// An option of the field's own, so the arrows
+							// reach it and a click searches for it.
+							chip := cb.Item("hot:"+w).MinHeight(28).Padding(3, 7).Gap(6).
+								Radius(7).AlignItems(ui.Center)
+							if chip.Highlighted() {
+								chip.Background(p.hover)
+							}
+							chip.Children(func() {
+								ui.Text(c, fmt.Sprint(i+1)).FontSize(10.5).FontWeight(800).TextColor(rank)
+								ui.Text(c, w).FontSize(12.5).SingleLine().Shrink(1).MinWidth(0)
+							})
+						}
+					})
+				}
+				// The searches before, under the day's: a listener with
+				// none of either has nothing to be shown.
+				if len(a.settings.SearchHistory) > 0 {
+					panel.Label("搜索历史")
+					ui.Row(c).Padding(2, 4, 2, 10).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, "搜索历史").FontSize(12).TextColor(p.muted).Grow(1)
+						iconButton(c.Key("clear"), iconTrash, 14, p.muted, "清空搜索历史").KeepFocus().OnClick(a.clearSearchHistory)
+					})
+					for _, h := range a.settings.SearchHistory {
+						option("history:"+h, h).Children(func() {
+							ui.Icon(c, iconSearch).Size(13, 13).TextColor(p.muted)
+							ui.Text(c, h).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
+						})
+					}
 				}
 				return
 			}
@@ -177,6 +244,11 @@ func (a *app) choose(key, q string) {
 	if h, ok := strings.CutPrefix(key, "history:"); ok {
 		a.query = h
 		a.search(h)
+		return
+	}
+	if w, ok := strings.CutPrefix(key, "hot:"); ok {
+		a.query = w
+		a.search(w)
 		return
 	}
 	if key == "query" {

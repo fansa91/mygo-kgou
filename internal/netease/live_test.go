@@ -71,6 +71,15 @@ func TestLive(t *testing.T) {
 	}
 
 	// 搜索 -> 播放 -> 歌词
+	hot, err := HotWords()
+	if err != nil {
+		t.Fatalf("hot words: %v", err)
+	}
+	fmt.Printf("\n热搜 %d 个\n", len(hot))
+	for _, w := range hot[:min(5, len(hot))] {
+		fmt.Printf("  %s\n", w)
+	}
+
 	res, err := SearchPage("富士山下", SearchSongs, 5, 0)
 	if err != nil {
 		t.Fatalf("search: %v", err)

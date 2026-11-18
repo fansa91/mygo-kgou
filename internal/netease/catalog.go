@@ -112,6 +112,16 @@ func SearchSuggest(query string) (Suggestions, error) {
 	return s, nil
 }
 
+// HotWords returns the day's searches, as KuGou's search box lists them,
+// for a listener with nothing in mind to start from.
+func HotWords() ([]string, error) {
+	c, err := kuGou()
+	if err != nil {
+		return nil, err
+	}
+	return kugou.HotWords(c, "")
+}
+
 // AlbumDetail returns an album with its songs.
 func AlbumDetail(id int64) (*AlbumProfile, error) {
 	c, err := kuGou()

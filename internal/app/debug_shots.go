@@ -18,6 +18,9 @@ func init() {
 	if dir == "" {
 		return
 	}
+	// A cover keeps its pixels while the screenshots are taken: the
+	// capture renders the frame on the CPU, which reads them.
+	artRelease = time.Hour
 	shotHook = func(a *app) {
 		// The scenes change settings to measure them: keep the
 		// listener's own as they were.
@@ -155,6 +158,36 @@ func init() {
 				step(0, func() { a.nowPlaying = true })
 				time.Sleep(4 * time.Second)
 				shot("q-np", a.win)
+				mygo.RunOnMain(mygo.App.Quit)
+				return
+			}
+			if os.Getenv("NM_SCENE") == "readme" {
+				// The README's pictures. Who is signed in and their own
+				// playlists are cleared first, so the pictures show the app
+				// rather than one listener's library; the pages' data, the
+				// daily songs and the charts, is everyone's either way.
+				time.Sleep(5 * time.Second)
+				step(0, func() {
+					a.profile = nil
+					a.mine, a.saved = nil, nil
+				})
+				time.Sleep(3 * time.Second)
+				shot("r-home", a.win)
+				step(0, func() { a.open(route{page: pageDaily}) })
+				time.Sleep(2 * time.Second)
+				shot("r-daily", a.win)
+				step(0, func() { a.search("周杰伦") })
+				time.Sleep(3 * time.Second)
+				shot("r-search", a.win)
+				step(0, func() {
+					a.pl.PlayQueue(a.daily, 0)
+					a.volume = 0
+					a.pl.SetVolume(0)
+				})
+				time.Sleep(4 * time.Second)
+				step(0, func() { a.nowPlaying, a.npPane = true, paneLyrics })
+				time.Sleep(3 * time.Second)
+				shot("r-np", a.win)
 				mygo.RunOnMain(mygo.App.Quit)
 				return
 			}

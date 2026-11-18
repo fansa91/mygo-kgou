@@ -138,6 +138,21 @@ func main() {
 		}
 		fmt.Println(indent(raw))
 
+	case "hot":
+		// The words KuGou puts on its search box's board, as the app's
+		// search field lists them while it is empty.
+		tab := "热搜榜"
+		if len(os.Args) > 2 {
+			tab = os.Args[2]
+		}
+		words, err := kugou.HotWords(client, tab)
+		if err != nil {
+			fail(err)
+		}
+		for i, w := range words {
+			fmt.Printf("%2d. %s\n", i+1, w)
+		}
+
 	case "search":
 		if len(os.Args) < 3 {
 			usage()
@@ -549,7 +564,7 @@ func indent(b []byte) string {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: kgtest register | search <keyword> | play <keyword> [level] | lyric <keyword> |\n"+
 		"       comments <keyword> [page] | say <keyword> <content> | del <keyword> <commentId> |\n"+
-		"       answer <keyword> <commentId> <content> |\n"+
+		"       answer <keyword> <commentId> <content> | hot [tab] |\n"+
 		"       get <router|-> <path> k=v... | login <mobile> | verify <mobile> <code> | me |\n"+
 		"       lists | liked | like <keyword> | unlike <keyword>")
 	os.Exit(2)

@@ -33,6 +33,9 @@ const (
 type Client struct {
 	HTTP *http.Client
 	Dir  string
+	// Base is where its calls go: the gateway, unless a test points them
+	// at a server of its own.
+	Base string
 
 	Dev    device
 	Token  string
@@ -188,6 +191,9 @@ func (c *Client) do(method string, r call) ([]byte, error) {
 	}
 
 	base := r.Base
+	if base == "" {
+		base = c.Base
+	}
 	if base == "" {
 		base = Gateway
 	}
