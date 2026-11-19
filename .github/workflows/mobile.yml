@@ -57,6 +57,12 @@ jobs:
   android:
     name: Android
     runs-on: ubuntu-latest
+    env:
+      # ubuntu-latest ships the Android SDK and an NDK already. mygo finds
+      # both here on its own; setup-android breaks on the runner's current
+      # cmdline-tools (it tries to install the retired "tools" package), so
+      # use what is preinstalled instead.
+      ANDROID_HOME: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -66,9 +72,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
-      - name: Install the Android NDK
-        run: sdkmanager "ndk;26.3.11579264"
       - name: Set the version from the tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
