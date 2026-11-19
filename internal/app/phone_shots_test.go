@@ -120,7 +120,12 @@ func richPhoneApp(t *testing.T) *app {
 	t.Helper()
 	a := phoneApp(t)
 	a.settings = defaultSettings()
-	a.profile = &netease.Profile{UserID: 42, Nickname: "爱听歌的人"}
+	a.profile = &netease.Profile{UserID: 42, Nickname: "爱听歌的人", VIP: true, Label: "概念版"}
+	a.users[42] = &userData{
+		user:      &netease.User{Nickname: "爱听歌的人", Follows: 128, Followeds: 512},
+		playlists: []netease.Playlist{shotPlaylist(1, false), shotPlaylist(2, false), shotPlaylist(3, false)},
+	}
+	a.hot = []string{"晴天", "周杰伦", "稻香", "夜曲", "告白气球", "七里香", "青花瓷", "双截棍"}
 
 	// The day's songs, the recommendations, the charts and the playlists.
 	a.daily = make([]netease.Track, 0, 6)
@@ -235,12 +240,52 @@ func TestPhoneShots(t *testing.T) {
 	tt4.Frame()
 	save("m-nowplaying", tt4)
 
-	// Settings, under the 我的 tab.
+	// Now Playing, swiped left to the lyrics page.
+	a4b := richPhoneApp(t)
+	a4b.phoneSelectTab(0)
+	a4b.nowPlaying = true
+	tt4b := ui.NewTester(a4b.view, 390, 844)
+	tt4b.SetInsets(44, 0, 34, 0)
+	tt4b.Frame()
+	tt4b.Advance(time.Second)
+	tt4b.Frame()
+	tt4b.FingerDown(320, 400)
+	tt4b.Advance(16 * time.Millisecond)
+	for i := 1; i <= 8; i++ {
+		tt4b.FingerMove(320-float32(i)*32, 400)
+		tt4b.Frame()
+		tt4b.Advance(16 * time.Millisecond)
+	}
+	tt4b.FingerUp(64, 400)
+	tt4b.Advance(time.Second)
+	tt4b.Frame()
+	save("m-nowplaying-lyrics", tt4b)
+
+	// The account home, under the 我的 tab.
 	a5 := richPhoneApp(t)
 	a5.phoneSelectTab(3)
 	tt5 := ui.NewTester(a5.view, 390, 844)
 	tt5.Frame()
 	tt5.Advance(time.Second)
 	tt5.Frame()
-	save("m-settings", tt5)
+	save("m-mine", tt5)
+
+	// Discover, the 发现 tab with nothing searched yet.
+	a6 := richPhoneApp(t)
+	a6.phoneSelectTab(1)
+	tt6 := ui.NewTester(a6.view, 390, 844)
+	tt6.Frame()
+	tt6.Advance(time.Second)
+	tt6.Frame()
+	save("m-discover", tt6)
+
+	// Settings, pushed from the account home.
+	a7 := richPhoneApp(t)
+	a7.phoneSelectTab(3)
+	a7.open(route{page: pageSettings})
+	tt7 := ui.NewTester(a7.view, 390, 844)
+	tt7.Frame()
+	tt7.Advance(time.Second)
+	tt7.Frame()
+	save("m-settings", tt7)
 }

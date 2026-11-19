@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/mobile"
 
 	"netease-music-mygo/internal/lyrics"
 	"netease-music-mygo/internal/netease"
@@ -26,6 +27,11 @@ func (a *app) npState(c *ui.Context) (open, settled bool) {
 	now := c.Now()
 	if open != a.npOpen {
 		a.npOpen, a.npChangedAt = open, now
+		if open {
+			// Each time Now Playing opens it starts on the cover; the
+			// listener swipes left if they want the lyrics.
+			a.npPager = mobile.PageState{}
+		}
 		// A build once it is at rest: to stop painting what it covers, or
 		// itself once gone.
 		c.After(npSettle)
@@ -157,6 +163,13 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 			return
 		}
 
+		if a.phone {
+			// A phone shows the cover first and the lyrics a swipe away:
+			// two pages the finger turns, rather than two cramped columns.
+			a.npPhonePages(c, tr, art, accent, w, h, pointerIn)
+			return
+		}
+
 		// On a phone the two desktop columns have to share a narrow
 		// screen: keep the cover around half the width with a small gap,
 		// instead of the desktop's 280px column and 72px gutter, which
@@ -182,7 +195,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 			var coverTop float32
 			ui.Column(c).Width(side).Justify(ui.Center).Gap(0).Children(func() {
 				coverTop = ui.Box(c.Key("cover-top")).Height(0).LayoutBounds().Y
-				a.npCover(c, tr, art, coverSize)
+				a.npCover(c, tr, art, coverSize, true)
 
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(36, 0, 18, 0).Children(func() {
 					ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
@@ -251,6 +264,122 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 			})
 		})
 	}
+}
+
+// npPhonePages is the phone's Now Playing: the cover fills the first page,
+// and the pane (lyrics by default) the second. A finger swipes left for the
+// lyrics and right back to the cover; the tabs and the two buttons under the
+// controls open a pane on the second page directly.
+func (a *app) npPhonePages(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
+	// A pane chosen by a tab or a shortcut opens on the second page. Apply
+	// it here, before PageView builds: setting the page from inside a tap,
+	// while PageView is mid-build, gets undone when its offset settles.
+	if a.npGotoPane {
+		a.npGotoPane = false
+		a.npPager.Page = 1
+	}
+	if a.npPager.Page < 0 || a.npPager.Page > 1 {
+		a.npPager.Page = 0
+	}
+	reveal(a.npTabsRow(c, w), pointerIn).Children(func() { a.paneTabs(c) })
+	mobile.PageView(c, &a.npPager, 2, func(i int) {
+		if i == 0 {
+			a.npPhoneCoverPage(c, tr, art, accent, w, h)
+		} else {
+			a.npPhonePanePage(c, tr, h)
+		}
+	}).Grow(1).Basis(0)
+}
+
+// npPhoneCoverPage is the first page: the artwork, what plays, and all the
+// controls, including the two buttons that open the comments and the queue.
+func (a *app) npPhoneCoverPage(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32) {
+	pl := a.pl
+	padX := a.npSideX(w)
+	cover := min(w-2*padX, h*0.46)
+	cover = max(cover, 180)
+	ui.Column(c).Grow(1).Basis(0).Padding(0, padX, 24, padX).Justify(ui.Center).Gap(0).Children(func() {
+		ui.Row(c).Justify(ui.Center).Children(func() {
+			// Dragging the cover would fight the page swipe, so the phone's
+			// cover is not draggable: tracks change with the transport below.
+			a.npCover(c, tr, art, cover, false)
+		})
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Margin(24, 0, 14, 0).Children(func() {
+			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
+				if r := pl.Radio(); r != "" {
+					a.radioChip(c, r)
+				}
+				ui.Text(c, tr.Name).FontSize(22).FontWeight(700).LetterSpacing(-0.3).SingleLine()
+				a.artistLinks(c, tr, white.Alpha(0.6), white, true).FontSize(15).SingleLine()
+			})
+			if !tr.Local() && !tr.Cloud {
+				a.likeButton(c.Key("like"), tr, 22, white.Alpha(0.7))
+			}
+			a.songMenu(c.Key("more"), tr, 22, white.Alpha(0.7)).Margin(0, -8, 0, 0)
+		})
+		a.scrubber(c.Key("np-scrub"), &a.npScrub, white.Alpha(0.18), white.Alpha(0.9), 16, accent.Mix(white, 0.35))
+		ui.Row(c).Height(16).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, clock(pl.Position())).FontSize(11).FontFeatures("tnum").TextColor(white.Alpha(0.5))
+			ui.Spacer(c)
+			qualityBadge(c, pl.Stream())
+			ui.Spacer(c)
+			status := "-" + clock(pl.Duration()-pl.Position())
+			if pl.Loading() {
+				status = "正在缓冲…"
+			}
+			ui.Text(c, status).FontSize(11).FontFeatures("tnum").TextColor(white.Alpha(0.5))
+		})
+		ui.Box(c).Margin(14, 0, 10, 0).Children(func() {
+			a.transport(c, white, white.Alpha(0.45), accent, 28)
+		})
+		// Under the controls: the shortcuts a listener reaches for. A
+		// file of the listener's own has no comments to read, so it gets
+		// only the queue here (matching the tabs at the top).
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Justify(ui.Center).Margin(8, 0, 0, 0).Children(func() {
+			if !tr.Local() && !tr.Cloud {
+				a.npPaneShortcut(c, "np-comments", iconComment, "评论", paneComments)
+			}
+			a.npPaneShortcut(c, "np-queue", iconQueue, "歌曲列表", paneQueue)
+		})
+	})
+}
+
+// npPaneShortcut is one of the buttons under the transport that opens a pane
+// on the phone's second page.
+func (a *app) npPaneShortcut(c *ui.Context, key string, icon *ui.SVG, label string, pane int) {
+	b := ui.ButtonBase(c.Key(key)).Row().Gap(8).Padding(9, 18).Radius(999).
+		AlignItems(ui.Center).Justify(ui.Center).FocusRing(false).Label(label + "按钮").
+		Background(white.Alpha(0.08)).TextColor(white.Alpha(0.85))
+	if b.Hovered() {
+		b.Background(white.Alpha(0.16))
+	}
+	b.Children(func() {
+		ui.Icon(c, icon).Size(16, 16)
+		ui.Text(c, label).FontSize(13).FontWeight(600).SingleLine()
+	})
+	if b.Clicked() {
+		a.choosePane(pane)
+	}
+}
+
+// npPhonePanePage is the second page: whatever pane is selected, drawn in
+// the room the tabs leave above it.
+func (a *app) npPhonePanePage(c *ui.Context, tr *netease.Track, h float32) {
+	ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
+		ui.Box(c).Height(npTabsHeight + 24)
+		switch a.npPane {
+		case paneLyrics:
+			a.lyricsPane(c, tr, h)
+		case paneComments:
+			a.commentsPane(c, tr)
+		case paneProgram:
+			a.programPane(c, tr)
+		case paneCaptions:
+			a.captionsPane(c, tr, h)
+		default:
+			a.queuePane(c)
+		}
+	})
 }
 
 // npMaxWidth is how wide the cover and the pane beside it go, at most.
@@ -351,6 +480,14 @@ func (a *app) choosePane(i int) {
 	if (i == paneLyrics || i == paneStage) && a.settings.LyricsStage != (i == paneStage) {
 		a.settings.LyricsStage = i == paneStage
 		a.settings.save()
+	}
+	// On a phone, choosing a pane shows it on the second page. The stage
+	// and the wall fill the whole view instead, so they need no page turn.
+	// The page is set at the top of the next build, before PageView lays
+	// itself out: setting it from inside a tap, as PageView builds, would
+	// be undone by its own offset settling back to the cover.
+	if a.phone && i != paneStage && i != paneWall {
+		a.npGotoPane = true
 	}
 }
 
@@ -609,10 +746,10 @@ func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, 
 							// reads out, when the song has them. They follow
 							// the line's size, which is smaller on a phone.
 							if l.Translation != "" {
-								ui.Text(c, l.Translation).FontSize(st.size*0.567).FontWeight(600).TextColor(white.Alpha(0.7))
+								ui.Text(c, l.Translation).FontSize(st.size * 0.567).FontWeight(600).TextColor(white.Alpha(0.7))
 							}
 							if l.Romanized != "" {
-								ui.Text(c, l.Romanized).FontSize(st.size*0.5).FontWeight(500).TextColor(white.Alpha(0.5))
+								ui.Text(c, l.Romanized).FontSize(st.size * 0.5).FontWeight(500).TextColor(white.Alpha(0.5))
 							}
 						}
 					})

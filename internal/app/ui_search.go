@@ -291,6 +291,10 @@ func (a *app) clearSearchHistory() {
 
 func (a *app) searchPage(c *ui.Context) {
 	r := a.route
+	if a.phone && r.query == "" {
+		a.discoverPage(c)
+		return
+	}
 	d := a.searches[r]
 	header := func(c *ui.Context) { a.searchHeader(c, d) }
 	more := func() { a.moreResults(r, d) }
@@ -422,7 +426,60 @@ func (a *app) foundPlaylistCard(c *ui.Context, pl *netease.Playlist) {
 	if pl.Creator.Nickname != "" {
 		sub += " · " + pl.Creator.Nickname
 	}
-	if a.coverCard(c, pl.Name, pl.Cover(), pl.PlayCount, sub, func() { a.loadPlaylist(pl.ID, true) }) {
-		a.open(route{page: pagePlaylist, id: pl.ID})
+	open := func() { a.open(route{page: pagePlaylist, id: pl.ID}) }
+	if a.coverCard(c, pl.Name, pl.Cover(), pl.PlayCount, sub, func() { a.loadPlaylist(pl.ID, true) }, open) {
+		open()
 	}
+}
+
+// discoverPage is the phone's 发现 tab when nothing has been searched: a
+// field to start from, the day's hot searches, and playlists to browse.
+// Without it the tab opens to an empty result list, which reads as broken.
+func (a *app) discoverPage(c *ui.Context) {
+	a.loadHotWords()
+	p := a.pal
+	a.scrollPage(c, func() {
+		ui.Text(c, "发现音乐").FontSize(26).FontWeight(800).LetterSpacing(-0.6).Margin(0, 0, 16, 0)
+		in := ui.TextInput(c.Key("discover-field"), &a.live.draft).
+			Placeholder("搜索歌曲、歌手、听书").Label("搜索").FontSize(14).Width(400).Height(40).Margin(0, 0, 24, 0)
+		if in.Changed() {
+			a.liveTyped()
+		}
+		if in.Submitted() {
+			a.liveSubmit()
+		}
+
+		if len(a.hot) > 0 {
+			a.section(c, "热搜榜")
+			ui.Grid(c).Columns(2).GapX(14).GapY(2).Children(func() {
+				for i, w := range a.hot[:min(len(a.hot), hotListed)] {
+					word := w
+					rankColor := p.faint
+					if i < 3 {
+						rankColor = p.accent
+					}
+					row := ui.ButtonBase(c.Key("discover-hot-" + word)).Row().Gap(12).
+						AlignItems(ui.Center).MinHeight(34).FocusRing(false).Label(word)
+					row.Children(func() {
+						ui.Textf(c, "%d", i+1).FontSize(14).FontWeight(700).Width(16).
+							FontFeatures("tnum").TextColor(rankColor)
+						ui.Text(c, word).FontSize(13.5).Shrink(1).MinWidth(0).SingleLine()
+					})
+					if row.Clicked() {
+						a.live.draft = word
+						a.liveSubmit()
+					}
+				}
+			})
+		}
+
+		if len(a.featured) > 0 {
+			a.section(c, "推荐歌单")
+			ui.Grid(c).Columns(a.columns(c, 168)).GapX(20).GapY(28).Children(func() {
+				for i := range a.featured {
+					a.playlistCard(c.Key(fmt.Sprintf("discover-pl-%d", a.featured[i].ID)), &a.featured[i])
+				}
+			})
+		}
+	})
 }

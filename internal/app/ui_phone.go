@@ -16,7 +16,7 @@ var phoneTabRoot = [4]route{
 	{page: pageHome},
 	{page: pageSearch},
 	{page: pageLocal},
-	{page: pageSettings},
+	{page: pageMine},
 }
 
 // phoneTabOf says which destination a page belongs to, so that a page
@@ -27,11 +27,26 @@ func (a *app) phoneTabOf(r route) int {
 		return 1
 	case pageLocal, pageCloud, pageDownloads:
 		return 2
-	case pageSettings:
+	case pageMine, pageSettings:
 		return 3
 	default:
 		return 0
 	}
+}
+
+// isPhoneTabRoot reports whether r is the first page of one of the bottom
+// tabs, which has no back button of its own.
+func (a *app) isPhoneTabRoot(r route) bool {
+	for _, root := range phoneTabRoot {
+		if r.page != root.page {
+			continue
+		}
+		if r.page == pageSearch {
+			return r.query == ""
+		}
+		return true
+	}
+	return false
 }
 
 func (a *app) phoneTitle() string {
@@ -48,7 +63,7 @@ func (a *app) phoneTitle() string {
 		return "歌单"
 	case pageSearch:
 		if a.route.query == "" {
-			return "搜索"
+			return "发现"
 		}
 		return "搜索结果"
 	case pageArtist:
@@ -67,6 +82,8 @@ func (a *app) phoneTitle() string {
 		return "本地音乐"
 	case pageCloud:
 		return "音乐云盘"
+	case pageMine:
+		return "我的"
 	case pageSettings:
 		return "设置"
 	}
@@ -90,6 +107,10 @@ func (a *app) phoneSelectTab(i int) {
 			d.page.loaded = true
 			a.searches[r] = d
 		}
+	}
+	if r.page == pageMine && a.profile != nil {
+		// The account home loads the listener's own page.
+		r.id = a.profile.UserID
 	}
 	a.phoneTab = i
 	a.open(r)
@@ -125,7 +146,9 @@ func (a *app) phoneTop(c *ui.Context) {
 	mobile.TopBar(c, mobile.TopBarOptions{
 		Title: a.phoneTitle(),
 		Leading: func() {
-			if len(a.history) == 0 && a.route.page != pageSettings {
+			// The root page of a tab has no back button, even when earlier
+			// tab switches left entries in the history.
+			if len(a.history) == 0 || a.isPhoneTabRoot(a.route) {
 				return
 			}
 			b := ui.ButtonBase(c.Key("phone-back")).Size(40, 40).Center().

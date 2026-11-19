@@ -15,13 +15,19 @@ import (
 // width. A page whose content is wider than the phone pushes its text off
 // the edge, which is easy to do with the desktop's fixed widths and easy
 // to miss until a narrow device shows it.
-func phoneFits(t *testing.T, a *app, w, h int) {
+func phoneFits(t *testing.T, a *app, w, h int, paged ...bool) {
 	t.Helper()
 	tt := ui.NewTester(a.view, w, h)
 	tt.Frame()
 	for _, text := range tt.Texts() {
 		r, ok := tt.Find(text)
 		if !ok {
+			continue
+		}
+		// A PageView keeps its neighbouring page to the right, off screen.
+		// Its labels are not overflow: they belong to the page a swipe
+		// would bring in.
+		if len(paged) > 0 && paged[0] && r.X >= float32(w)-0.5 {
 			continue
 		}
 		if r.X < -0.5 || r.X+r.W > float32(w)+0.5 {
@@ -36,6 +42,8 @@ func phoneFits(t *testing.T, a *app, w, h int) {
 // the screen.
 func TestPhonePagesFit(t *testing.T) {
 	const w, h = 390, 844
+	// Now Playing keeps a second, off-screen page to the right for lyrics.
+	paged := map[string]bool{"nowplaying": true}
 	cases := []struct {
 		name string
 		open func(a *app)
@@ -85,7 +93,7 @@ func TestPhonePagesFit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			a := phoneApp(t)
 			tc.open(a)
-			phoneFits(t, a, w, h)
+			phoneFits(t, a, w, h, paged[tc.name])
 		})
 	}
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/mobile"
 
 	"netease-music-mygo/internal/netease"
 	"netease-music-mygo/internal/player"
@@ -29,6 +30,7 @@ const (
 	pageLocal
 	pageCloud
 	pageRanking
+	pageMine     // the phone's account home: profile, playlists, entries to settings
 	pageSettings // a page on phones; a window on the desktop
 )
 
@@ -164,10 +166,12 @@ type app struct {
 	hotAsked    bool                  // whether they have been asked for
 
 	nowPlaying  bool
-	npOpen      bool      // Now Playing as it last showed: open or not
-	npChangedAt time.Time // when it last opened or closed
-	npPane      int       // paneLyrics, paneQueue, paneStage, paneComments, paneProgram or paneCaptions
-	npPaneTop   float32   // how far the cover beside the pane starts below its top
+	npOpen      bool             // Now Playing as it last showed: open or not
+	npChangedAt time.Time        // when it last opened or closed
+	npPager     mobile.PageState // the phone's cover/lyrics pages, swiped left for lyrics
+	npGotoPane  bool             // a pane was chosen: open it on the second page next build
+	npPane      int              // paneLyrics, paneQueue, paneStage, paneComments, paneProgram or paneCaptions
+	npPaneTop   float32          // how far the cover beside the pane starts below its top
 	lyricScroll ui.ScrollState
 	lyricGlide  lyricGlide
 	lyricAt     int

@@ -161,11 +161,11 @@ func (a *app) userPage(c *ui.Context) {
 				}
 			})
 		}
-if own && d.podcastsShown {
-		a.section(c, "订阅的听书")
-		if len(d.podcasts) == 0 {
-			a.empty(c, "还没有订阅听书")
-		}
+		if own && d.podcastsShown {
+			a.section(c, "订阅的听书")
+			if len(d.podcasts) == 0 {
+				a.empty(c, "还没有订阅听书")
+			}
 			ui.Grid(c).Columns(a.columns(c, 340)).GapX(8).GapY(4).Margin(0, -12).Children(func() {
 				for i := range d.podcasts {
 					a.podcastRow(c.Key(d.podcasts[i].ID), &d.podcasts[i])
@@ -220,6 +220,98 @@ func (a *app) memberRow(c *ui.Context) {
 			}
 			ui.Text(c, label).FontSize(11.5).FontWeight(600).TextColor(p.accent).
 				Padding(3, 9).Radius(999).Background(p.accent.Alpha(0.1)).SingleLine()
+		}
+	})
+}
+
+// minePage is the phone's account home: the listener's profile, entries to
+// the parts of their library, and the way into settings. It is the root of
+// the 我的 tab; settings is one page pushed on top of it.
+func (a *app) minePage(c *ui.Context) {
+	p := a.pal
+	if a.profile == nil {
+		a.scrollPage(c, func() {
+			ui.Column(c).Grow(1).AlignItems(ui.Center).Justify(ui.Center).Gap(18).Padding(0, 32).Children(func() {
+				ui.Box(c).Size(84, 84).Radius(42).Background(p.hover).Center().Children(func() {
+					ui.Icon(c, iconUser).Size(38, 38).TextColor(p.faint)
+				})
+				ui.Text(c, "登录后查看你的音乐").FontSize(16).FontWeight(600)
+				ui.Text(c, "同步歌单、收藏与评论").FontSize(13).TextColor(p.muted)
+				if pillButton(c, nil, "登录", p.accent, p.onAccent).Clicked() {
+					a.openLogin()
+				}
+			})
+		})
+		return
+	}
+
+	id := a.profile.UserID
+	d := a.users[id]
+	size := a.profilePhotoSize()
+	a.scrollPage(c, func() {
+		// Profile card: avatar, name and the account's standing.
+		ui.Row(c).Gap(a.profileGap()).AlignItems(ui.Center).Margin(0, 0, 8, 0).Children(func() {
+			ui.Box(c).Size(size, size).Radius(size/2).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
+				a.coverFill(c, a.profile.AvatarURL, 600, size/2)
+			})
+			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
+				ui.Text(c, a.profile.Nickname).FontSize(24).FontWeight(800).LetterSpacing(-0.5).MaxLines(2).LineHeight(1.2)
+				if d != nil && d.user != nil {
+					ui.Text(c, fmt.Sprintf("%s 关注 · %s 粉丝", count(d.user.Follows), count(d.user.Followeds))).FontSize(13).TextColor(p.muted)
+				} else if a.profile.Label != "" {
+					ui.Text(c, a.profile.Label).FontSize(12.5).TextColor(p.accent)
+				}
+				if a.profile.VIP || a.profile.Lite {
+					a.memberRow(c)
+				}
+			})
+		})
+
+		// Entries to the library and to settings, as a grid of tiles.
+		entry := func(key string, icon *ui.SVG, label string, act func()) {
+			tile := ui.ButtonBase(c.Key(key)).Column().Gap(10).AlignItems(ui.Center).Justify(ui.Center).
+				Padding(16, 4).Radius(14).Background(p.hover).FocusRing(false).Label(label)
+			if tile.Hovered() {
+				tile.Background(p.press)
+			}
+			tile.Children(func() {
+				ui.Icon(c, icon).Size(24, 24).TextColor(p.accent)
+				ui.Text(c, label).FontSize(12.5).FontWeight(600).SingleLine()
+			})
+			if tile.Clicked() {
+				act()
+			}
+		}
+		a.section(c, "我的音乐")
+		ui.Grid(c).Columns(4).Gap(10).Children(func() {
+			entry("mine-liked", iconHeart, "我喜欢的", func() {
+				if len(a.liked) == 0 {
+					a.toast = "还没有喜欢的歌曲"
+					return
+				}
+				a.open(route{page: pageUser, id: id})
+			})
+			entry("mine-download", iconDownload, "下载", func() { a.open(route{page: pageDownloads}) })
+			entry("mine-local", iconFolder, "本地音乐", func() { a.open(route{page: pageLocal}) })
+			entry("mine-cloud", iconCloud, "音乐云盘", func() { a.open(route{page: pageCloud}) })
+			entry("mine-podcast", iconPodcast, "听书", func() { a.open(route{page: pagePodcasts}) })
+			entry("mine-home", iconUser, "我的主页", func() { a.open(route{page: pageUser, id: id}) })
+			entry("mine-fm", iconRadio, "私人 FM", func() { a.open(route{page: pageFM}) })
+			entry("mine-settings", iconSettings, "设置", func() { a.open(route{page: pageSettings}) })
+		})
+
+		a.section(c, "创建的歌单")
+		switch {
+		case d == nil || d.loading > 0:
+			a.playlistCardsSkeleton(c, a.pageShimmer(c), a.columns(c, 168), 168, false)
+		case len(d.playlists) == 0:
+			a.empty(c, "还没有创建歌单")
+		default:
+			ui.Grid(c).Columns(a.columns(c, 168)).GapX(20).GapY(28).Children(func() {
+				for i := range d.playlists {
+					a.playlistCard(c.Key(d.playlists[i].ID), &d.playlists[i])
+				}
+			})
 		}
 	})
 }

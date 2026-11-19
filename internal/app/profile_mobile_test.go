@@ -55,6 +55,7 @@ func TestPhoneSettingsAccountFits(t *testing.T) {
 	a := phoneApp(t)
 	a.profile = &netease.Profile{UserID: 9, Nickname: "听歌的人"}
 	a.phoneSelectTab(3)
+	a.open(route{page: pageSettings}) // settings is pushed from the account home
 	phoneFits(t, a, 390, 844)
 	tt := ui.NewTester(a.view, 390, 2400) // tall enough to build every group
 	tt.Frame()

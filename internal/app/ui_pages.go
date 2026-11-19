@@ -129,20 +129,24 @@ func (a *app) chartsPage(c *ui.Context) {
 // playlistCard is a square cover with the playlist's name below: it lifts
 // under the pointer, where a play button shows on it.
 func (a *app) playlistCard(c *ui.Context, pl *netease.Playlist) {
-	if a.coverCard(c, pl.Name, pl.Cover(), pl.PlayCount, pl.UpdateFreq, func() { a.loadPlaylist(pl.ID, true) }) {
-		a.open(route{page: pagePlaylist, id: pl.ID})
+	open := func() { a.open(route{page: pagePlaylist, id: pl.ID}) }
+	if a.coverCard(c, pl.Name, pl.Cover(), pl.PlayCount, pl.UpdateFreq, func() { a.loadPlaylist(pl.ID, true) }, open) {
+		open()
 	}
 }
 
 // coverCard is a playlist's card, or a podcast's: its cover, with how many
 // times it was played on it, over its name and a line under that. The
 // button on the cover calls play; it reports whether the rest was clicked.
-func (a *app) coverCard(c *ui.Context, name, cover string, playCount float64, sub string, play func()) bool {
+func (a *app) coverCard(c *ui.Context, name, cover string, playCount float64, sub string, play func(), more ...func()) bool {
 	p := a.pal
 	// From the top: a grid stretches the cards of a row as tall as the
 	// tallest, whose name or line under it takes two lines.
 	card := ui.ButtonBase(c).Column().Gap(10).AlignItems(ui.Stretch).Justify(ui.Start).FocusRing(false).Label(name)
 	hovered := card.Hovered()
+	// A touch screen has no hover: the cover's play button, and an extra
+	// action where the caller gave one, stay visible on a phone.
+	showActions := hovered || a.phone
 	card.Children(func() {
 		art := ui.Box(c).AspectRatio(1).Radius(10)
 		lift := ui.Pose{}
@@ -162,7 +166,18 @@ func (a *app) coverCard(c *ui.Context, name, cover string, playCount float64, su
 					ui.Text(c, plays(playCount)).FontSize(10.5).FontWeight(600)
 				})
 			}
-			a.coverPlayButton(c, hovered, play)
+			a.coverPlayButton(c, showActions, play)
+			// On a phone, a second button on the cover opens the playlist
+			// (or does whatever the caller asked), so the card offers more
+			// than a single hidden play affordance.
+			if a.phone && len(more) > 0 && more[0] != nil {
+				b := ui.ButtonBase(c.Key("cover-more")).Absolute().Bottom(10).Right(56).Size(38, 38).Radius(999).Center().
+					Background(ui.RGBA(0, 0, 0, 0.5)).TextColor(ui.RGB(255, 255, 255)).Label("更多").FocusRing(false)
+				b.Children(func() { ui.Icon(c, iconMore).Size(16, 16) })
+				if b.Clicked() {
+					more[0]()
+				}
+			}
 		})
 		ui.Text(c, name).FontSize(13).FontWeight(500).MaxLines(2).LineHeight(1.35)
 		if sub != "" {
@@ -216,7 +231,14 @@ func (a *app) chartCard(c *ui.Context, pl *netease.Playlist) {
 	}
 	card.Background(card.AnimateColor("bg", bg, ui.Animation{Duration: 140 * time.Millisecond}))
 	card.Children(func() {
-		ui.Box(c).Size(84, 84).Radius(9).Shadow(0, 3, 10, -2, p.cardShade).Children(func() {
+		cover := float32(84)
+		if a.phone {
+			// On a phone the chart is read by its artwork: there is no
+			// room for the three song lines beside a 84px cover, so the
+			// cover grows and only the name stays.
+			cover = 96
+		}
+		ui.Box(c).Size(cover, cover).Radius(9).Shadow(0, 3, 10, -2, p.cardShade).Children(func() {
 			a.coverFill(c, pl.Cover(), 200, 9)
 		})
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(5).Children(func() {
@@ -224,14 +246,16 @@ func (a *app) chartCard(c *ui.Context, pl *netease.Playlist) {
 				ui.Text(c, pl.Name).FontSize(14).FontWeight(700).SingleLine()
 				ui.Text(c, pl.UpdateFreq).FontSize(11).TextColor(p.faint).SingleLine()
 			})
-			for i, line := range pl.Preview {
-				ui.Row(c).Gap(7).Children(func() {
-					ui.Textf(c, "%d", i+1).FontSize(12).FontWeight(700).Width(10).FontFeatures("tnum").TextColor(p.muted)
-					ui.RichText(c,
-						ui.Span{Text: line.First, Weight: 500},
-						ui.Span{Text: "  " + line.Second, Color: p.muted},
-					).FontSize(12).SingleLine().Shrink(1).MinWidth(0)
-				})
+			if !a.phone {
+				for i, line := range pl.Preview {
+					ui.Row(c).Gap(7).Children(func() {
+						ui.Textf(c, "%d", i+1).FontSize(12).FontWeight(700).Width(10).FontFeatures("tnum").TextColor(p.muted)
+						ui.RichText(c,
+							ui.Span{Text: line.First, Weight: 500},
+							ui.Span{Text: "  " + line.Second, Color: p.muted},
+						).FontSize(12).SingleLine().Shrink(1).MinWidth(0)
+					})
+				}
 			}
 		})
 	})

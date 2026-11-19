@@ -88,7 +88,7 @@ const swipeRest = 140 * time.Millisecond
 
 // npCover shows the cover of tr, size across, which the pointer tilts,
 // drags and flings.
-func (a *app) npCover(c *ui.Context, tr *netease.Track, art *artwork, size float32) {
+func (a *app) npCover(c *ui.Context, tr *netease.Track, art *artwork, size float32, draggable bool) {
 	cs, pl := &a.npCoverState, a.pl
 	far := size * 1.5 // where a cover flies off to
 	fling := func(dir int) {
@@ -119,50 +119,52 @@ func (a *app) npCover(c *ui.Context, tr *netease.Track, art *artwork, size float
 		exit = nil
 	}
 	wrap.Transition(ui.ElementTransition{Animation: &coverSlide, Colors: true, Enter: enter, Exit: exit})
-	wrap.Draggable(&cs.off, ui.DraggableOptions{
-		Axis: ui.Horizontal,
-		Snap: func(p ui.Point) ui.Point {
-			switch {
-			case p.X < -size*0.4:
-				fling(1)
-			case p.X > size*0.4:
-				fling(-1)
-			default:
-				return ui.Point{}
-			}
-			return cs.off
-		},
-		Animation: coverSwing,
-	})
-	if entering {
-		cs.off = ui.Point{}
-		c.AnimationFrame()
-	}
-	// Two fingers swiping across the trackpad move it as a drag does.
-	wrap.HandleInput(func(ev ui.InputEvent) bool {
-		if ev.Kind != ui.InputScroll || !ev.Precise || cs.flung != 0 {
-			return false
+	if draggable {
+		wrap.Draggable(&cs.off, ui.DraggableOptions{
+			Axis: ui.Horizontal,
+			Snap: func(p ui.Point) ui.Point {
+				switch {
+				case p.X < -size*0.4:
+					fling(1)
+				case p.X > size*0.4:
+					fling(-1)
+				default:
+					return ui.Point{}
+				}
+				return cs.off
+			},
+			Animation: coverSwing,
+		})
+		if entering {
+			cs.off = ui.Point{}
+			c.AnimationFrame()
 		}
-		if ev.Momentum {
-			if cs.swipe != 0 {
+		// Two fingers swiping across the trackpad move it as a drag does.
+		wrap.HandleInput(func(ev ui.InputEvent) bool {
+			if ev.Kind != ui.InputScroll || !ev.Precise || cs.flung != 0 {
+				return false
+			}
+			if ev.Momentum {
+				if cs.swipe != 0 {
+					a.letSwipeGo(size, fling)
+				}
+				return cs.decided
+			}
+			if cs.swipe == 0 && math.Abs(float64(ev.DX)) <= math.Abs(float64(ev.DY)) {
+				return false
+			}
+			cs.decided = false
+			cs.swipe -= ev.DX
+			cs.swipeAt = ev.Time
+			cs.off = ui.Point{X: rubber(cs.swipe, size)}
+			return true
+		})
+		if cs.swipe != 0 {
+			if c.Now().Sub(cs.swipeAt) >= swipeRest {
 				a.letSwipeGo(size, fling)
+			} else {
+				c.After(swipeRest)
 			}
-			return cs.decided
-		}
-		if cs.swipe == 0 && math.Abs(float64(ev.DX)) <= math.Abs(float64(ev.DY)) {
-			return false
-		}
-		cs.decided = false
-		cs.swipe -= ev.DX
-		cs.swipeAt = ev.Time
-		cs.off = ui.Point{X: rubber(cs.swipe, size)}
-		return true
-	})
-	if cs.swipe != 0 {
-		if c.Now().Sub(cs.swipeAt) >= swipeRest {
-			a.letSwipeGo(size, fling)
-		} else {
-			c.After(swipeRest)
 		}
 	}
 

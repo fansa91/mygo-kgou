@@ -2,12 +2,21 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/audio"
 	"github.com/egoist/mygo/ui"
 
 	"netease-music-mygo/internal/netease"
 )
+
+// advanceFrames steps a tester in small frames, so animations settle the
+// same way they do on screen (a single large Advance skips the in-between).
+func advanceFrames(tt *ui.Tester, d time.Duration) {
+	for range int(d / (16 * time.Millisecond)) {
+		tt.Advance(16 * time.Millisecond)
+	}
+}
 
 // phonePlayingApp is a phone with a song playing through a silent output,
 // so the player strip and Now Playing have something to show.
@@ -78,5 +87,72 @@ func TestPhoneNowPlayingControls(t *testing.T) {
 	tt.Frame()
 	if a.nowPlaying {
 		t.Error("the close chevron did not leave Now Playing")
+	}
+}
+
+// The phone's Now Playing opens on the cover, and the two buttons under the
+// controls open the comments and the queue on the second page.
+func TestPhonePlayerPages(t *testing.T) {
+	for _, tc := range []struct {
+		button string
+		pane   int
+	}{{"评论按钮", paneComments}, {"歌曲列表按钮", paneQueue}} {
+		t.Run(tc.button, func(t *testing.T) {
+			a := phonePlayingApp(t)
+			a.pl.SetLyrics(nil)
+			a.nowPlaying = true
+			tt := ui.NewTester(a.view, 390, 844)
+			tt.SetInsets(44, 0, 34, 0)
+			tt.Frame()
+			advanceFrames(tt, 700*time.Millisecond)
+			tt.Frame()
+			if a.npPager.Page != 0 {
+				t.Fatalf("Now Playing opens on page %d, want the cover (0)", a.npPager.Page)
+			}
+			if err := tt.Click(tc.button); err != nil {
+				t.Fatalf("no tappable %s under the controls: %v", tc.button, err)
+			}
+			tt.Frame()
+			advanceFrames(tt, 700*time.Millisecond)
+			tt.Frame()
+			if a.npPane != tc.pane {
+				t.Errorf("%s left pane %d, want %d", tc.button, a.npPane, tc.pane)
+			}
+			if a.npPager.Page != 1 {
+				t.Errorf("%s left page %d, want the pane page (1)", tc.button, a.npPager.Page)
+			}
+		})
+	}
+}
+
+// A finger swiping left over Now Playing turns from the cover to the lyrics;
+// swiping right goes back.
+func TestPhonePlayerSwipe(t *testing.T) {
+	a := phonePlayingApp(t)
+	a.nowPlaying = true
+	tt := ui.NewTester(a.view, 390, 844)
+	tt.SetInsets(44, 0, 34, 0)
+	tt.Frame()
+	advanceFrames(tt, 700*time.Millisecond)
+	tt.Frame()
+	swipe := func(from, to float32) {
+		tt.FingerDown(from, 400)
+		tt.Advance(16 * time.Millisecond)
+		for i := 1; i <= 8; i++ {
+			tt.FingerMove(from+(to-from)*float32(i)/8, 400)
+			tt.Frame()
+			tt.Advance(16 * time.Millisecond)
+		}
+		tt.FingerUp(to, 400)
+		tt.Advance(2 * time.Second)
+		tt.Frame()
+	}
+	swipe(330, 50)
+	if a.npPager.Page != 1 {
+		t.Errorf("swiping left left page %d, want the lyrics (1)", a.npPager.Page)
+	}
+	swipe(50, 330)
+	if a.npPager.Page != 0 {
+		t.Errorf("swiping right left page %d, want the cover (0)", a.npPager.Page)
 	}
 }

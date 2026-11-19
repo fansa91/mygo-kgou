@@ -12,13 +12,15 @@
 | **搜索** | **正在播放** |
 | ![搜索](docs/shots/r-search.png) | ![正在播放](docs/shots/r-np.png) |
 
-手机端是同一套界面：底部四个页签（首页 / 发现 / 乐库 / 我的），上方一条迷你播放条，点它展开正在播放页。
+手机端是同一套界面：底部四个页签（首页 / 发现 / 乐库 / 我的），上方一条迷你播放条，点它展开正在播放页。播放页默认是封面，向左滑翻出歌词，控制键下方还有「评论」和「歌曲列表」入口；「我的」是个人中心，设置从里面进入。
 
-| 首页 | 正在播放 | 搜索 |
+| 首页 | 正在播放（封面） | 正在播放（左滑歌词） |
 | --- | --- | --- |
-| ![手机首页](docs/shots/m-home.png) | ![手机正在播放](docs/shots/m-nowplaying.png) | ![手机搜索](docs/shots/m-search.png) |
-| **本地音乐** | **设置** | |
-| ![手机本地音乐](docs/shots/m-local.png) | ![手机设置](docs/shots/m-settings.png) | |
+| ![手机首页](docs/shots/m-home.png) | ![手机正在播放](docs/shots/m-nowplaying.png) | ![手机歌词](docs/shots/m-nowplaying-lyrics.png) |
+| **发现** | **我的** | **设置** |
+| ![手机发现](docs/shots/m-discover.png) | ![手机我的](docs/shots/m-mine.png) | ![手机设置](docs/shots/m-settings.png) |
+| **搜索结果** | **本地音乐** | |
+| ![手机搜索](docs/shots/m-search.png) | ![手机本地音乐](docs/shots/m-local.png) | |
 
 ## 功能
 

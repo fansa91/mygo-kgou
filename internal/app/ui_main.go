@@ -147,7 +147,7 @@ func (a *app) load(r route) {
 		a.loadArtist(r.id)
 	case pageAlbum:
 		a.loadAlbum(r.id)
-	case pageUser:
+	case pageUser, pageMine:
 		a.loadUser(r.id)
 	case pagePodcast:
 		a.loadPodcast(r.id)
@@ -420,6 +420,8 @@ func (a *app) content(c *ui.Context) {
 		a.albumPage(c)
 	case pageUser:
 		a.userPage(c)
+	case pageMine:
+		a.minePage(c)
 	case pagePodcast:
 		a.podcastPage(c)
 	case pagePodcasts:

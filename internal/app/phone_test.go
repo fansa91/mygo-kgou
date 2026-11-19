@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"netease-music-mygo/internal/netease"
 )
 
 // phoneApp is an app in the phone shell, at a phone's size, without the
@@ -41,6 +43,7 @@ func TestPhoneShellShowsTabsAndTitle(t *testing.T) {
 // Tapping a destination opens its page, and the destination stays lit.
 func TestPhoneTabsOpenPages(t *testing.T) {
 	a := phoneApp(t)
+	a.profile = &netease.Profile{UserID: 42, Nickname: "听歌的人"}
 	tt := ui.NewTester(a.view, 390, 844)
 	tt.Frame()
 	if err := tt.Click("乐库"); err != nil {
@@ -58,8 +61,16 @@ func TestPhoneTabsOpenPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.route.page != pageSettings {
+	if a.route.page != pageMine {
 		t.Fatalf("after 我的: page %v", a.route.page)
+	}
+	// Settings is reached from the account home, not the tab itself.
+	if err := tt.Click("设置"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.route.page != pageSettings {
+		t.Fatalf("after 设置: page %v", a.route.page)
 	}
 }
 
@@ -115,8 +126,10 @@ func TestPhoneSearchTabHasAField(t *testing.T) {
 	if a.route.page != pageSearch || a.searches[a.route] == nil {
 		t.Fatalf("the search tab has no page: %v", a.route)
 	}
-	if !tt.HasText("单曲") || !tt.HasText("歌手") {
-		t.Errorf("the search page's kinds are missing: %v", tt.Texts())
+	// The empty search tab is the discover page: a field to start from,
+	// not an empty result list.
+	if !tt.HasText("发现音乐") {
+		t.Errorf("the discover page is missing: %v", tt.Texts())
 	}
 }
 
