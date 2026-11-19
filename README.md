@@ -72,20 +72,10 @@ go test ./...        # 运行测试
 
 手机端由 GitHub Actions 的 `Mobile` 工作流在每次发版标签上构建，也可在 Actions 页手动触发：
 
-- **iOS**：配好下面的签名 Secrets 后产出**真机可安装的 `.ipa`**（ad-hoc / TestFlight 等，取决于描述文件类型）；不配则退回模拟器用的 `.app`，免开发者账号，但只能跑在模拟器里。最低支持 iOS 17.0（mygo 宿主用到了仅 iOS 17 才有的系统 API，见上表）。
+- **iOS**：产出**免签名的 `.ipa`**（`-ios-unsigned.ipa`），由模拟器构建的 `.app` 按标准 `Payload` 结构打包而成，无需开发者账号或签名证书。它是真的 `.ipa` 归档，但**只能装模拟器，无法直接装真机**——真机安装需由你用自己的证书重签名。最低支持 iOS 17.0（mygo 宿主用到了仅 iOS 17 才有的系统 API，见上表）。
 - **Android**：产出 `.apk` 与 `.aab`，用上传密钥签名（没配密钥则用调试密钥，Google Play 不接受）。
 
-真机 `.ipa` 必须由 Apple 开发者证书和描述文件签名，这是 Apple 的硬性要求。签名材料放在仓库的 Secrets 里（证书从「钥匙串访问」导出为带私钥的 `.p12`，描述文件从 Apple Developer 下载，都转成 base64）：
-
-| 名称 | 类型 | 用途 |
-| --- | --- | --- |
-| `IOS_CERTIFICATE_P12` | Secret | 签名证书 `.p12`（含私钥）的 base64（`base64 -i cert.p12`） |
-| `IOS_CERTIFICATE_PASSWORD` | Secret | `.p12` 的密码 |
-| `IOS_PROVISIONING_PROFILE` | Secret | `.mobileprovision` 描述文件的 base64（须匹配应用标识 `dev.mygo.kgou`） |
-| `IOS_TEAM_ID` | Secret | 开发者团队 ID；留空则从描述文件读取 |
-| `IOS_DISTRIBUTION` | Secret | `app-store`（默认，含 TestFlight）/ `ad-hoc` / `development` / `enterprise` |
-
-Android 的签名 Secrets：
+真机 `.ipa` 必须由 Apple 开发者证书和描述文件签名，这是 Apple 的硬性要求，mygo 在构建前就强制校验、无法绕过，所以这里不签。Android 的签名 Secrets：
 
 | 名称 | 类型 | 用途 |
 | --- | --- | --- |
@@ -93,8 +83,6 @@ Android 的签名 Secrets：
 | `ANDROID_KEYSTORE_PASSWORD` | Secret | 密钥库密码 |
 | `ANDROID_KEY_PASSWORD` | Secret | 密钥密码；与密钥库密码相同可留空 |
 | `ANDROID_KEY_ALIAS` | Secret | 密钥别名，默认 `upload` |
-
-iOS 与 Android 的 Secrets 相互独立：只配 Android 时，iOS 仍出模拟器包；两者都配则出各自的签名包。
 
 ## 致谢
 
