@@ -39,8 +39,18 @@ func (a *app) stageStyleButton(c *ui.Context) {
 	if b.Hovered() {
 		bg, fg = white.Alpha(0.06), white.Alpha(0.8)
 	}
+	if a.phone {
+		// A phone has no room for the name beside the icons: the button is
+		// its icon alone, which opens the same menu.
+		b.Size(34, 34).Center().Radius(17)
+		bg = white.Alpha(0.08)
+	}
 	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
 	b.Children(func() {
+		if a.phone {
+			ui.Icon(c, iconSettings).Size(17, 17).TextColor(fg)
+			return
+		}
 		ui.Text(c, label).FontSize(13).FontWeight(600).TextColor(fg)
 		ui.Icon(c, iconDown).Size(12, 12).TextColor(fg)
 	})

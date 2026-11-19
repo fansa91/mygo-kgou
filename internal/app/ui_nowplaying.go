@@ -19,6 +19,16 @@ var npSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 450 * time.Millis
 // npSettle is how long Now Playing takes to come or go, its spring at rest.
 const npSettle = 600 * time.Millisecond
 
+// npSwipe is how far down a phone's Now Playing shows, dragged: far enough
+// down, or flicked, and it goes, as a sheet does.
+type npSwipe struct {
+	offset ui.Point
+}
+
+// npCloseAt is how far down a phone drags Now Playing before it closes: a
+// third of the view, so that a short nudge springs back.
+func npCloseAt(h float32) float32 { return max(h*0.34, 120) }
+
 // npState tracks Now Playing opening and closing, and reports whether it is
 // open and whether it has come to rest, open or closed. Call it once a
 // build, before the window's content.
@@ -29,8 +39,9 @@ func (a *app) npState(c *ui.Context) (open, settled bool) {
 		a.npOpen, a.npChangedAt = open, now
 		if open {
 			// Each time Now Playing opens it starts on the cover; the
-			// listener swipes left if they want the lyrics.
-			a.npPager = mobile.PageState{}
+			// listener swipes left if they want the lyrics, or drags it
+			// down to close it.
+			a.npPager, a.npSwipe = mobile.PageState{}, npSwipe{}
 		}
 		// A build once it is at rest: to stop painting what it covers, or
 		// itself once gone.
@@ -96,6 +107,12 @@ func (a *app) nowPlayingView(c *ui.Context) {
 
 	root := ui.Box(c.Key("now-playing")).Absolute().Top(0).Left(0).Right(0).Bottom(0).
 		Background(ui.Hex("#0b0b0d")).TextColor(white)
+	// A finger drags the view down to close it, as a sheet: far enough
+	// down, or flicked, and it goes. A pane that scrolls keeps the drags
+	// it can use, since a scroll is found before the view is.
+	if a.phone {
+		a.swipeDown(root, h)
+	}
 	// The pointer is over the view whenever it is in the window. A phone
 	// has no pointer to hover: there, the close chevron and the pane tabs
 	// stay shown, or a listener could neither leave Now Playing nor reach
@@ -107,6 +124,22 @@ func (a *app) nowPlayingView(c *ui.Context) {
 		// paint over those in the flow.
 		ui.Column(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Children(func() { a.nowPlayingBody(c, tr, art, accent, w, h, pointerIn) })
 	})
+}
+
+// swipeDown lets a finger drag the phone's Now Playing down to close it, as
+// a sheet: released past halfway to npCloseAt, or flicked down, and it goes.
+// The panes that scroll keep their scrolls, since the finger finds a scroll
+// that moves the way it does before it finds the view.
+func (a *app) swipeDown(root ui.Element, h float32) {
+	closeAt := npCloseAt(h)
+	root.Draggable(&a.npSwipe.offset, ui.DraggableOptions{
+		Axis:   ui.Vertical,
+		Bounds: &ui.Rect{H: closeAt},
+		Snap:   ui.Nearest(ui.Point{}, ui.Point{Y: closeAt}),
+	})
+	if a.npSwipe.offset.Y >= closeAt && !root.Dragging() {
+		a.nowPlaying = false
+	}
 }
 
 func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
@@ -148,11 +181,20 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 		})
 		if a.npPane == paneStage {
 			// The stage takes the whole view: the lyrics are the show, the
-			// controls a slim bar at the foot.
-			reveal(a.npTabsRow(c, w), pointerIn).Children(func() {
-				a.paneTabs(c)
-				a.stageStyleButton(c)
-			})
+			// controls a slim bar at the foot. A phone has the row of icons
+			// over it, the style button in its corner.
+			if a.phone {
+				a.npPhoneTabs(c)
+				ui.Box(c).Absolute().Top(topBar(c)).Right(6).Height(npTabsHeight + 20).
+					Row().AlignItems(ui.Center).Children(func() {
+					a.stageStyleButton(c)
+				})
+			} else {
+				reveal(a.npTabsRow(c, w), pointerIn).Children(func() {
+					a.paneTabs(c)
+					a.stageStyleButton(c)
+				})
+			}
 			a.stage(c, tr, accent)
 			a.stageBar(c, tr, art, accent)
 			return
@@ -166,7 +208,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 		if a.phone {
 			// A phone shows the cover first and the lyrics a swipe away:
 			// two pages the finger turns, rather than two cramped columns.
-			a.npPhonePages(c, tr, art, accent, w, h, pointerIn)
+			a.npPhonePages(c, tr, art, accent, w, h)
 			return
 		}
 
@@ -268,9 +310,9 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 
 // npPhonePages is the phone's Now Playing: the cover fills the first page,
 // and the pane (lyrics by default) the second. A finger swipes left for the
-// lyrics and right back to the cover; the tabs and the two buttons under the
-// controls open a pane on the second page directly.
-func (a *app) npPhonePages(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32, pointerIn bool) {
+// lyrics and right back to the cover; the icons above and the two buttons
+// under the controls open a pane on the second page directly.
+func (a *app) npPhonePages(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32) {
 	// A pane chosen by a tab or a shortcut opens on the second page. Apply
 	// it here, before PageView builds: setting the page from inside a tap,
 	// while PageView is mid-build, gets undone when its offset settles.
@@ -281,7 +323,7 @@ func (a *app) npPhonePages(c *ui.Context, tr *netease.Track, art *artwork, accen
 	if a.npPager.Page < 0 || a.npPager.Page > 1 {
 		a.npPager.Page = 0
 	}
-	reveal(a.npTabsRow(c, w), pointerIn).Children(func() { a.paneTabs(c) })
+	a.npPhoneTabs(c)
 	mobile.PageView(c, &a.npPager, 2, func(i int) {
 		if i == 0 {
 			a.npPhoneCoverPage(c, tr, art, accent, w, h)
@@ -291,12 +333,61 @@ func (a *app) npPhonePages(c *ui.Context, tr *netease.Track, art *artwork, accen
 	}).Grow(1).Basis(0)
 }
 
+// npPhoneTabs is the row of icons that chooses what the phone's Now Playing
+// shows: the panes' names do not fit across a phone, so their icons stand
+// for them, the chosen one lit. The row is above the pages, in the flow, so
+// that it holds still while a finger turns from the cover to the lyrics.
+func (a *app) npPhoneTabs(c *ui.Context) {
+	ui.Row(c.Key("np-phone-tabs")).Height(npTabsHeight + 20).Gap(2).
+		AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+		for _, t := range a.npTabs() {
+			a.npPhoneTab(c, t.pane, t.label)
+		}
+	})
+}
+
+func (a *app) npPhoneTab(c *ui.Context, pane int, label string) {
+	b := ui.ButtonBase(c.Key(pane)).Size(38, 38).Center().Radius(19).FocusRing(false).Label(label)
+	bg, fg := ui.Transparent, white.Alpha(0.55)
+	if a.npPane == pane {
+		bg, fg = white.Alpha(0.14), white
+	}
+	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
+	b.Children(func() {
+		ui.Icon(c, paneIcon(pane)).Size(18, 18).TextColor(fg)
+	})
+	if b.Clicked() {
+		a.choosePane(pane)
+	}
+}
+
+// paneIcon is the icon that stands for a pane on a phone.
+func paneIcon(pane int) *ui.SVG {
+	switch pane {
+	case paneLyrics:
+		return iconLyrics
+	case paneStage:
+		return iconWave
+	case paneComments:
+		return iconComment
+	case paneProgram:
+		return iconNote
+	case paneCaptions:
+		return iconCaptions
+	case paneWall:
+		return iconGrid
+	}
+	return iconQueue
+}
+
 // npPhoneCoverPage is the first page: the artwork, what plays, and all the
 // controls, including the two buttons that open the comments and the queue.
 func (a *app) npPhoneCoverPage(c *ui.Context, tr *netease.Track, art *artwork, accent ui.Color, w, h float32) {
 	pl := a.pl
 	padX := a.npSideX(w)
-	cover := min(w-2*padX, h*0.46)
+	// The row of icons takes a strip above the page, so the cover leaves it
+	// a little more room than the view's own.
+	cover := min(w-2*padX, h*0.42)
 	cover = max(cover, 180)
 	ui.Column(c).Grow(1).Basis(0).Padding(0, padX, 24, padX).Justify(ui.Center).Gap(0).Children(func() {
 		ui.Row(c).Justify(ui.Center).Children(func() {
@@ -362,11 +453,11 @@ func (a *app) npPaneShortcut(c *ui.Context, key string, icon *ui.SVG, label stri
 	}
 }
 
-// npPhonePanePage is the second page: whatever pane is selected, drawn in
-// the room the tabs leave above it.
+// npPhonePanePage is the second page: whatever pane is selected, drawn under
+// the row of icons above the pages.
 func (a *app) npPhonePanePage(c *ui.Context, tr *netease.Track, h float32) {
 	ui.Column(c).Grow(1).Basis(0).MinWidth(0).Children(func() {
-		ui.Box(c).Height(npTabsHeight + 24)
+		ui.Box(c).Height(8)
 		switch a.npPane {
 		case paneLyrics:
 			a.lyricsPane(c, tr, h)

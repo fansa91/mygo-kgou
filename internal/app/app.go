@@ -72,6 +72,8 @@ type app struct {
 	accountOpen  bool           // the dropdown of the account row shows
 	naming       nameDialog     // the name of a playlist asked for
 	deleting     deleteDialog   // whether to delete a playlist, asked
+	desc         descSheet      // the description of a page, asked for
+	navDir       int            // which way the page came: 1 forward, -1 back, 0 a tab
 	liked        map[int64]bool // the songs the listener likes
 	toast        string         // a message to show once
 	picked       pickedUp       // the song a login picked up, waiting to play
@@ -172,6 +174,7 @@ type app struct {
 	npGotoPane  bool             // a pane was chosen: open it on the second page next build
 	npPane      int              // paneLyrics, paneQueue, paneStage, paneComments, paneProgram or paneCaptions
 	npPaneTop   float32          // how far the cover beside the pane starts below its top
+	npSwipe     npSwipe          // the phone's Now Playing dragged down to close
 	lyricScroll ui.ScrollState
 	lyricGlide  lyricGlide
 	lyricAt     int

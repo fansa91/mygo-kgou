@@ -72,6 +72,7 @@ func (a *app) view(c *ui.Context) {
 	a.loginDialog(c)
 	a.playlistNameDialog(c)
 	a.deletePlaylistDialog(c)
+	a.descDialog(c)
 	if a.toast != "" {
 		c.Toast(a.toast)
 		a.toast = ""
@@ -111,6 +112,16 @@ func (a *app) open(r route) {
 	a.nowPlaying = false
 	if r == a.route {
 		return
+	}
+	// Which way the page comes from: a step forward, unless the tab bar
+	// sent the listener to another tab, which is no step at all, or back
+	// to the first page of the tab they are in, which is a return.
+	a.navDir = 1
+	if a.isPhoneTabRoot(r) {
+		a.navDir = -1
+		if a.phoneTabOf(r) != a.phoneTabOf(a.route) {
+			a.navDir = 0
+		}
 	}
 	a.history, a.forward = append(a.history, a.route), nil
 	a.show(r)
@@ -173,6 +184,7 @@ func (a *app) back() {
 	a.forward = append(a.forward, a.route)
 	r := a.history[len(a.history)-1]
 	a.history = a.history[:len(a.history)-1]
+	a.navDir = -1
 	a.show(r)
 }
 
@@ -186,6 +198,7 @@ func (a *app) goForward() {
 	r := a.forward[len(a.forward)-1]
 	a.forward = a.forward[:len(a.forward)-1]
 	a.nowPlaying = false
+	a.navDir = 1
 	a.show(r)
 }
 

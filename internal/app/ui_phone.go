@@ -2,6 +2,7 @@ package app
 
 import (
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
@@ -119,9 +120,11 @@ func (a *app) phoneSelectTab(i int) {
 // phoneView builds the shell around the pages, above which Now Playing
 // rises. It is built instead of the sidebar-and-window layout on phones.
 func (a *app) phoneView(c *ui.Context, npOpen, npSettled bool) {
-	if npOpen && npSettled {
-		// As on the desktop, what is under a settled Now Playing is not
-		// built: the page keeps its scroll and costs nothing per frame.
+	// A view dragged down shows the page under it, so it is built while the
+	// finger holds it clear of the top; otherwise, settled over the pages,
+	// it leaves them unbuilt: they keep their scroll and cost nothing per
+	// frame.
+	if npOpen && npSettled && a.npSwipe.offset.Y <= 0 {
 		return
 	}
 	// The bar writes the destination it was tapped into selected; following
@@ -129,17 +132,54 @@ func (a *app) phoneView(c *ui.Context, npOpen, npSettled bool) {
 	selected := a.phoneTabOf(a.route)
 	ui.Column(c).Fill().Children(func() {
 		a.phoneTop(c)
-		// Keyed by the tab, so its pages keep what ui.Local holds when
-		// another tab is shown.
-		ui.Box(c.Key(selected)).Grow(1).Basis(0).FillWidth().Children(func() {
-			a.content(c)
-		})
+		a.phonePages(c)
 		a.phonePlayer(c)
 		mobile.BottomBar(c, &selected, phoneBarButtons...)
 	})
 	if selected != a.phoneTabOf(a.route) {
 		a.phoneSelectTab(selected)
 	}
+}
+
+// npPageTurn is how long a page takes to slide away and the next to arrive,
+// and npTabFade the crossfade a tab switch makes in its place: the page
+// arriving goes over the one leaving, which fades out a little slower, so
+// that the two are never both half seen.
+const (
+	npPageTurn   = 240 * time.Millisecond
+	npTabFadeIn  = 140 * time.Millisecond
+	npTabFadeOut = 220 * time.Millisecond
+)
+
+// npPageShift is how far a page comes from, and goes to, as the pages turn:
+// far enough to be seen going, near enough that the page beside it is never
+// shown empty.
+const npPageShift = 56
+
+// phonePages puts the page of the route where a phone shows pages, and
+// slides it in as it changes: forward from the right, back from the left,
+// with the page before going the other way. A tab switch is no step from
+// the page it leaves, so the two cross-fade where they are.
+func (a *app) phonePages(c *ui.Context) {
+	// One parent for every page, so that a page leaving is still there for
+	// the copy that fades or slides away; the page itself is keyed by what
+	// it shows, so that its state comes back to it.
+	box := ui.Box(c.Key("phone-pages")).Grow(1).Basis(0).FillWidth().Clip()
+	dir := float32(a.navDir) * npPageShift
+	turn := ui.ElementTransition{
+		Duration: npPageTurn,
+		Enter:    &ui.Motion{X: dir},
+		Exit:     &ui.Motion{X: -dir},
+	}
+	if a.navDir == 0 {
+		turn.Duration, turn.ExitDuration = npTabFadeIn, npTabFadeOut
+		turn.Enter, turn.Exit = &ui.Motion{}, &ui.Motion{}
+	}
+	// The page going leaves the way the coming one does not: the parent
+	// says so, in the frame it goes.
+	box.ChildExit(ui.Motion{X: -dir}).Children(func() {
+		ui.Column(c.Key(a.route)).Absolute().Fill().Transition(turn).Children(func() { a.content(c) })
+	})
 }
 
 func (a *app) phoneTop(c *ui.Context) {

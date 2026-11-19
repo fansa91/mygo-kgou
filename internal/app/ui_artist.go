@@ -360,54 +360,44 @@ func (a *app) artistHeader(c *ui.Context, d *artistData) {
 		songs = d.latest
 	}
 	size := a.profilePhotoSize()
-	ui.Row(c).Gap(a.profileGap()).AlignItems(ui.End).Padding(0, 0, 8, 0).Children(func() {
-		photo := ar.Avatar
-		if photo == "" {
-			photo = ar.PicURL
-		}
-		ui.Box(c).Size(size, size).Radius(size/2).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
-			a.coverFill(c, photo, 600, size/2)
+	photo := ar.Avatar
+	if photo == "" {
+		photo = ar.PicURL
+	}
+	var meta []string
+	if aka := distinct(append([]string{ar.Trans}, ar.Alias...)); len(aka) > 0 {
+		meta = append(meta, strings.Join(aka, " / "))
+	}
+	if ar.MusicSize > 0 {
+		meta = append(meta, fmt.Sprintf("%d 首歌曲", ar.MusicSize))
+	}
+	if ar.AlbumSize > 0 {
+		meta = append(meta, fmt.Sprintf("%d 张专辑", ar.AlbumSize))
+	}
+	desc := strings.TrimSpace(ar.BriefDesc)
+	if a.phone {
+		a.phoneDetailHead(c, photo, "歌手", ar.Name, strings.Join(meta, " · "), desc, true)
+		ui.Row(c).Gap(8).Wrap().Margin(0, 0, 20, 0).Children(func() {
+			a.artistActions(c, ar, songs)
 		})
-		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
-			ui.Text(c, "歌手").FontSize(12).FontWeight(600).TextColor(p.accent)
-			ui.Text(c, ar.Name).FontSize(30).FontWeight(800).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
-			var meta []string
-			if aka := distinct(append([]string{ar.Trans}, ar.Alias...)); len(aka) > 0 {
-				meta = append(meta, strings.Join(aka, " / "))
-			}
-			if ar.MusicSize > 0 {
-				meta = append(meta, fmt.Sprintf("%d 首歌曲", ar.MusicSize))
-			}
-			if ar.AlbumSize > 0 {
-				meta = append(meta, fmt.Sprintf("%d 张专辑", ar.AlbumSize))
-			}
-			ui.Text(c, strings.Join(meta, " · ")).FontSize(13).TextColor(p.muted)
-			if d := strings.TrimSpace(ar.BriefDesc); d != "" {
-				ui.Text(c, strings.ReplaceAll(d, "\n", " ")).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
-			}
-			ui.Row(c).Gap(10).Margin(10, 0, 0, 0).Children(func() {
-				if pillButton(c.Key("play"), iconPlay, "播放", p.accent, p.onAccent).Clicked() {
-					if a.pl.Shuffle() {
-						a.pl.ToggleShuffle()
-					}
-					a.pl.PlayQueue(songs, firstPlayable(songs))
+	} else {
+		ui.Row(c).Gap(a.profileGap()).AlignItems(ui.End).Padding(0, 0, 8, 0).Children(func() {
+			ui.Box(c).Size(size, size).Radius(size/2).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
+				a.coverFill(c, photo, 600, size/2)
+			})
+			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
+				ui.Text(c, "歌手").FontSize(12).FontWeight(600).TextColor(p.accent)
+				ui.Text(c, ar.Name).FontSize(30).FontWeight(800).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
+				ui.Text(c, strings.Join(meta, " · ")).FontSize(13).TextColor(p.muted)
+				if desc != "" {
+					ui.Text(c, strings.ReplaceAll(desc, "\n", " ")).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
 				}
-				if pillButton(c.Key("shuffle"), iconShuffle, "随机播放", p.hover.Over(p.bg), p.text).Clicked() {
-					if !a.pl.Shuffle() {
-						a.pl.ToggleShuffle()
-					}
-					a.pl.PlayQueue(songs, firstPlayable(songs))
-				}
-				icon, label := iconPlus, "关注"
-				if ar.Followed {
-					icon, label = iconCheck, "已关注"
-				}
-				if pillButton(c.Key("follow"), icon, label, p.hover.Over(p.bg), p.text).Clicked() {
-					a.toggleFollow(ar.ID)
-				}
+				ui.Row(c).Gap(10).Margin(10, 0, 0, 0).Children(func() {
+					a.artistActions(c, ar, songs)
+				})
 			})
 		})
-	})
+	}
 	ui.Row(c).AlignItems(ui.Center).Margin(34, 0, 14, 0).Children(func() {
 		ui.Text(c, artistTabTitles[a.artistTab]).FontSize(19).FontWeight(700).LetterSpacing(-0.3)
 		ui.Spacer(c)
@@ -415,6 +405,31 @@ func (a *app) artistHeader(c *ui.Context, d *artistData) {
 			a.loadArtist(ar.ID)
 		}
 	})
+}
+
+// artistActions are the buttons under an artist's name: play, shuffle and
+// follow. They are the same on a phone and on a desktop.
+func (a *app) artistActions(c *ui.Context, ar *netease.ArtistProfile, songs []netease.Track) {
+	p := a.pal
+	if pillButton(c.Key("play"), iconPlay, "播放", p.accent, p.onAccent).Clicked() {
+		if a.pl.Shuffle() {
+			a.pl.ToggleShuffle()
+		}
+		a.pl.PlayQueue(songs, firstPlayable(songs))
+	}
+	if pillButton(c.Key("shuffle"), iconShuffle, "随机播放", p.hover.Over(p.bg), p.text).Clicked() {
+		if !a.pl.Shuffle() {
+			a.pl.ToggleShuffle()
+		}
+		a.pl.PlayQueue(songs, firstPlayable(songs))
+	}
+	icon, label := iconPlus, "关注"
+	if ar.Followed {
+		icon, label = iconCheck, "已关注"
+	}
+	if pillButton(c.Key("follow"), icon, label, p.hover.Over(p.bg), p.text).Clicked() {
+		a.toggleFollow(ar.ID)
+	}
 }
 
 var artistTabTitles = [...]string{"歌曲", "歌曲", "专辑", "动态"}

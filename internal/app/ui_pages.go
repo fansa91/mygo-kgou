@@ -286,97 +286,116 @@ func (a *app) playlistPage(c *ui.Context) {
 
 func (a *app) playlistHeader(c *ui.Context, pl *netease.Playlist) {
 	p := a.pal
+	kind := "歌单"
+	switch {
+	case a.rankVolAt[pl.ID] != 0 && pl.Description != "":
+		kind = "榜单 · " + pl.Description
+	case pl.UpdateFreq != "":
+		kind = "榜单 · " + pl.UpdateFreq
+	}
+	var meta []string
+	if pl.Creator.Nickname != "" {
+		meta = append(meta, pl.Creator.Nickname)
+	}
+	meta = append(meta, fmt.Sprintf("%d 首", len(pl.Tracks)))
+	if pl.PlayCount > 0 {
+		meta = append(meta, plays(pl.PlayCount)+" 次播放")
+	}
+	desc := strings.TrimSpace(pl.Description)
+	if a.phone {
+		// A phone has no room for a cover beside the name and a row of
+		// buttons under it: the cover is smaller, and the buttons have a
+		// row of their own, which wraps as it must.
+		a.phoneDetailHead(c, pl.Cover(), kind, pl.Name, strings.Join(meta, " · "), desc, false)
+		ui.Row(c).Gap(8).Wrap().Margin(0, 0, 20, 0).Children(func() {
+			a.playlistActions(c, pl)
+		})
+		return
+	}
 	ui.Row(c).Gap(28).AlignItems(ui.End).Padding(0, 0, 26, 0).Children(func() {
 		ui.Box(c).Size(212, 212).Radius(14).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
 			a.coverFill(c, pl.Cover(), 600, 14)
 		})
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
-			kind := "歌单"
-			switch {
-			case a.rankVolAt[pl.ID] != 0 && pl.Description != "":
-				kind = "榜单 · " + pl.Description
-			case pl.UpdateFreq != "":
-				kind = "榜单 · " + pl.UpdateFreq
-			}
 			ui.Text(c, kind).FontSize(12).FontWeight(600).TextColor(p.accent)
 			ui.Text(c, pl.Name).FontSize(30).FontWeight(800).LetterSpacing(-0.6).MaxLines(2).LineHeight(1.2)
-			var meta []string
-			if pl.Creator.Nickname != "" {
-				meta = append(meta, pl.Creator.Nickname)
-			}
-			meta = append(meta, fmt.Sprintf("%d 首", len(pl.Tracks)))
-			if pl.PlayCount > 0 {
-				meta = append(meta, plays(pl.PlayCount)+" 次播放")
-			}
 			ui.Text(c, strings.Join(meta, " · ")).FontSize(13).TextColor(p.muted)
-			if d := strings.TrimSpace(pl.Description); d != "" {
-				ui.Text(c, strings.ReplaceAll(d, "\n", " ")).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
+			if desc != "" {
+				ui.Text(c, strings.ReplaceAll(desc, "\n", " ")).FontSize(12.5).TextColor(p.muted).MaxLines(2).LineHeight(1.45).Margin(2, 0, 0, 0)
 			}
 			ui.Row(c).Gap(10).Margin(10, 0, 0, 0).Children(func() {
-				if pillButton(c.Key("play"), iconPlay, "播放", p.accent, p.onAccent).Clicked() {
-					if a.pl.Shuffle() {
-						a.pl.ToggleShuffle()
-					}
-					a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
-				}
-				if pillButton(c.Key("shuffle"), iconShuffle, "随机播放", p.hover.Over(p.bg), p.text).Clicked() {
-					if !a.pl.Shuffle() {
-						a.pl.ToggleShuffle()
-					}
-					a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
-				}
-				if a.savable(pl) {
-					icon, label := iconPlus, "收藏"
-					if a.isSaved(pl) {
-						icon, label = iconCheck, "已收藏"
-					}
-					if pillButton(c.Key("save"), icon, label, p.hover.Over(p.bg), p.text).Clicked() {
-						a.toggleSaved(*pl)
-					}
-				}
-				// The chart as it stood, by the number chosen.
-				if pl.UpdateFreq != "" || a.rankVolAt[pl.ID] != 0 {
-					vols := pillButton(c.Key("vols"), iconCharts, "往期", p.hover.Over(p.bg), p.text)
-					vols.Menu(a.rankVolItems(pl))
-					if a.rankVolBusy[pl.ID] {
-						ui.Text(c, "正在读取…").FontSize(12).TextColor(p.faint)
-					}
-					if a.rankVolAt[pl.ID] != 0 {
-						if pillButton(c.Key("vol-latest"), iconReload, "回到最新", p.hover.Over(p.bg), p.text).Clicked() {
-							a.closeRankVol(pl)
-						}
-					}
-				}
-				if mine := a.editable(pl.ID); mine != nil {
-					more := iconButton(c.Key("more"), iconMore, 18, p.muted, "更多")
-					more.Menu(func(m *ui.Menu) {
-						if m.Item("重命名…").Chosen() {
-							a.startRename(mine)
-						}
-						m.Separator()
-						if m.Item("删除歌单…").Chosen() {
-							a.confirmDelete(mine)
-						}
-					})
-				}
-				switch {
-				case pl.SpecialType != 5:
-				case a.pl.Radio() == heartRadio:
-					if pillButton(c.Key("heart"), iconX, "退出心动模式", p.hover.Over(p.bg), p.text).Clicked() {
-						a.exitRadio()
-					}
-				default:
-					label := "心动模式"
-					if a.radioStarting == heartRadio {
-						label = "正在开启…"
-					}
-					if pillButton(c.Key("heart"), iconHeartFill, label, p.hover.Over(p.bg), p.text).Clicked() {
-						a.startHeartMode()
-					}
-				}
+				a.playlistActions(c, pl)
 			})
 		})
 	})
+}
+
+// playlistActions are what a playlist's page offers: to play it, to play
+// it in order at random, to keep it, and what a chart or a playlist of
+// the listener's own has besides.
+func (a *app) playlistActions(c *ui.Context, pl *netease.Playlist) {
+	p := a.pal
+	if pillButton(c.Key("play"), iconPlay, "播放", p.accent, p.onAccent).Clicked() {
+		if a.pl.Shuffle() {
+			a.pl.ToggleShuffle()
+		}
+		a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
+	}
+	if pillButton(c.Key("shuffle"), iconShuffle, "随机播放", p.hover.Over(p.bg), p.text).Clicked() {
+		if !a.pl.Shuffle() {
+			a.pl.ToggleShuffle()
+		}
+		a.pl.PlayQueue(pl.Tracks, firstPlayable(pl.Tracks))
+	}
+	if a.savable(pl) {
+		icon, label := iconPlus, "收藏"
+		if a.isSaved(pl) {
+			icon, label = iconCheck, "已收藏"
+		}
+		if pillButton(c.Key("save"), icon, label, p.hover.Over(p.bg), p.text).Clicked() {
+			a.toggleSaved(*pl)
+		}
+	}
+	// The chart as it stood, by the number chosen.
+	if pl.UpdateFreq != "" || a.rankVolAt[pl.ID] != 0 {
+		vols := pillButton(c.Key("vols"), iconCharts, "往期", p.hover.Over(p.bg), p.text)
+		vols.Menu(a.rankVolItems(pl))
+		if a.rankVolBusy[pl.ID] {
+			ui.Text(c, "正在读取…").FontSize(12).TextColor(p.faint)
+		}
+		if a.rankVolAt[pl.ID] != 0 {
+			if pillButton(c.Key("vol-latest"), iconReload, "回到最新", p.hover.Over(p.bg), p.text).Clicked() {
+				a.closeRankVol(pl)
+			}
+		}
+	}
+	if mine := a.editable(pl.ID); mine != nil {
+		more := iconButton(c.Key("more"), iconMore, 18, p.muted, "更多")
+		more.Menu(func(m *ui.Menu) {
+			if m.Item("重命名…").Chosen() {
+				a.startRename(mine)
+			}
+			m.Separator()
+			if m.Item("删除歌单…").Chosen() {
+				a.confirmDelete(mine)
+			}
+		})
+	}
+	switch {
+	case pl.SpecialType != 5:
+	case a.pl.Radio() == heartRadio:
+		if pillButton(c.Key("heart"), iconX, "退出心动模式", p.hover.Over(p.bg), p.text).Clicked() {
+			a.exitRadio()
+		}
+	default:
+		label := "心动模式"
+		if a.radioStarting == heartRadio {
+			label = "正在开启…"
+		}
+		if pillButton(c.Key("heart"), iconHeartFill, label, p.hover.Over(p.bg), p.text).Clicked() {
+			a.startHeartMode()
+		}
+	}
 }
 
 // trackRows lists tracks under a header, which scrolls with them; a click
