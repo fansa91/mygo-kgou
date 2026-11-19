@@ -38,31 +38,35 @@ func (a *app) view(c *ui.Context) {
 	}
 	npOpen, npSettled := a.npState(c)
 	root.Children(func() {
-		page := ui.Row(c).Fill().AlignItems(ui.Stretch)
-		page.Children(func() {
-			if npOpen && npSettled {
-				// Covered by Now Playing: not built, which would cost each
-				// of its frames as much again as the stage itself. Where
-				// it is scrolled is the app's (pageScroll, navScroll,
-				// trackList), so it shows again as it was.
-				return
-			}
-			side := ui.Column(c).Width(sidebarWidth)
-			if !c.Vibrancy() {
-				side.Background(p.sidebar)
-			}
-			side.Children(func() { a.sidebar(c) })
-			// Keyed, so that a popover of the sidebar opening or closing
-			// keeps what the page and its bars hold, their edges' fades.
-			ui.Box(c.Key("main")).Grow(1).Background(p.bg).BorderWidth(0, 0, 0, 1).BorderColor(p.hairline).Children(func() {
-				a.content(c)
-				// The bars float over the page, which scrolls under them:
-				// positioned, they paint over it.
-				a.pageTop(c)
-				a.selectBar(c)
-				a.playerBar(c)
+		if a.phone {
+			a.phoneView(c, npOpen, npSettled)
+		} else {
+			page := ui.Row(c).Fill().AlignItems(ui.Stretch)
+			page.Children(func() {
+				if npOpen && npSettled {
+					// Covered by Now Playing: not built, which would cost each
+					// of its frames as much again as the stage itself. Where
+					// it is scrolled is the app's (pageScroll, navScroll,
+					// trackList), so it shows again as it was.
+					return
+				}
+				side := ui.Column(c).Width(sidebarWidth)
+				if !c.Vibrancy() {
+					side.Background(p.sidebar)
+				}
+				side.Children(func() { a.sidebar(c) })
+				// Keyed, so that a popover of the sidebar opening or closing
+				// keeps what the page and its bars hold, their edges' fades.
+				ui.Box(c.Key("main")).Grow(1).Background(p.bg).BorderWidth(0, 0, 0, 1).BorderColor(p.hairline).Children(func() {
+					a.content(c)
+					// The bars float over the page, which scrolls under them:
+					// positioned, they paint over it.
+					a.pageTop(c)
+					a.selectBar(c)
+					a.playerBar(c)
+				})
 			})
-		})
+		}
 		a.nowPlayingLayer(c, npOpen, npSettled)
 	})
 	a.loginDialog(c)
@@ -94,6 +98,10 @@ func (a *app) shortcuts(c *ui.Context) {
 				c.OnShortcut(ui.Cmd, ui.Key1+ui.Key(i), func() { a.choosePane(t.pane) })
 			}
 		}
+	} else if a.phone {
+		// Android's system back is Escape: it pops the page, as the
+		// bar's back button does. Now Playing takes it while it is open.
+		c.OnShortcut(0, ui.KeyEscape, a.back)
 	}
 }
 
@@ -271,6 +279,12 @@ const pageGap = 12
 // insets returns the room the bars over a page take at its top and its
 // bottom: pages pad their content by it, and scroll under the bars.
 func (a *app) insets(c *ui.Context) (top, bottom float32) {
+	if a.phone {
+		// The phone's top and bottom bars are in the column's flow, not
+		// floating over the page, so pages need no room for them. Safe
+		// area insets belong to the bars themselves.
+		return 0, 0
+	}
 	top = topBar(c)
 	if runtime.GOOS == "darwin" {
 		// The edge reaches a little below the traffic lights' strip.
@@ -360,8 +374,23 @@ func (a *app) pageTop(c *ui.Context) {
 func (a *app) content(c *ui.Context) {
 	// A new page starts at its top. Not as it is opened: a control in a
 	// list, as a page's tabs in its header, opens it as the list builds.
+	// On a phone, where pages share one window, the state of each page is
+	// kept by route: going back finds the row and the scroll it left.
 	if a.scrolled != a.route {
-		a.trackList, a.pageScroll, a.scrolled = ui.ListState{}, ui.ScrollState{}, a.route
+		if a.pageStates == nil {
+			a.pageStates = map[route]pageState{}
+		}
+		if a.phone {
+			a.pageStates[a.scrolled] = pageState{a.trackList, a.pageScroll, a.navScroll}
+			if saved, ok := a.pageStates[a.route]; ok {
+				a.trackList, a.pageScroll, a.navScroll = saved.trackList, saved.pageScroll, saved.navScroll
+			} else {
+				a.trackList, a.pageScroll, a.navScroll = ui.ListState{}, ui.ScrollState{}, ui.ScrollState{}
+			}
+		} else {
+			a.trackList, a.pageScroll = ui.ListState{}, ui.ScrollState{}
+		}
+		a.scrolled = a.route
 		// Leaving a page drops its select and its list, so the next starts
 		// fresh: the old list's marks would otherwise linger on a page
 		// still loading its own.
@@ -403,6 +432,9 @@ func (a *app) content(c *ui.Context) {
 		a.cloudPage(c)
 	case pageRanking:
 		a.rankingPage(c)
+	case pageSettings:
+		// On a phone this is a tab, not the desktop's separate window.
+		a.settingsView(c)
 	}
 }
 

@@ -62,37 +62,53 @@ func openFile(t netease.Track) (stream, error) {
 	return s, nil
 }
 
-// A seeker reads a download that is whole, as the decoders of package
-// audio read a file: from any offset, which it may move from.
+// A seeker reads a download as the decoders of package audio read a file:
+// from any offset, which it may move from, waiting for the bytes that have
+// not come in yet. A song of the local library is whole, and waits for
+// nothing; one still streaming from the service comes as it is read.
 type seeker struct {
 	dl  *download
 	pos int64
 }
 
 func (s *seeker) Read(p []byte) (int, error) {
-	s.dl.mu.Lock()
-	defer s.dl.mu.Unlock()
-	if s.pos >= s.dl.n {
-		if s.dl.err != nil {
-			return 0, s.dl.err
+	d := s.dl
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for d.n <= s.pos && !d.done {
+		d.cond.Wait()
+	}
+	if d.n <= s.pos {
+		if d.err != nil {
+			return 0, d.err
 		}
 		return 0, io.EOF
 	}
-	n, err := s.dl.readAt(p, s.pos)
+	n, err := d.readAt(p, s.pos)
+	if n == 0 && err == nil {
+		return 0, io.ErrUnexpectedEOF
+	}
 	s.pos += int64(n)
 	return n, err
 }
 
 func (s *seeker) Seek(off int64, whence int) (int64, error) {
-	s.dl.mu.Lock()
-	defer s.dl.mu.Unlock()
+	d := s.dl
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	switch whence {
 	case io.SeekStart:
 		s.pos = off
 	case io.SeekCurrent:
 		s.pos += off
 	case io.SeekEnd:
-		s.pos = s.dl.n + off
+		// The length is what the response said, before its first byte came
+		// in: without one, it is known only once all of them have.
+		for d.size <= 0 && !d.done {
+			d.cond.Wait()
+		}
+		end := max(d.size, d.n)
+		s.pos = end + off
 	}
 	if s.pos < 0 {
 		s.pos = 0

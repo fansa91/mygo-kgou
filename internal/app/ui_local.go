@@ -427,7 +427,7 @@ func (a *app) localHeader(c *ui.Context) {
 		}
 	}
 	a.heading(c, "本地音乐", sub)
-	ui.Row(c).Gap(10).AlignItems(ui.Center).Margin(0, 0, 10, 0).Children(func() {
+	buttons := func() {
 		if pillButton(c.Key("local-dir"), iconFolder, "选择文件夹", p.hover.Over(p.bg), p.text).Clicked() {
 			a.chooseLocalDir()
 		}
@@ -440,19 +440,55 @@ func (a *app) localHeader(c *ui.Context) {
 				a.scanLocal()
 			}
 		}
-		ui.Box(c).Grow(1)
-		ui.Text(c, a.localDir()).FontSize(12).TextColor(p.faint).SingleLine().Shrink(1).MinWidth(0).TextAlign(ui.End)
-	})
-	ui.Row(c).Gap(12).AlignItems(ui.Center).Margin(0, 0, 8, 0).Children(func() {
-		if segmented(c.Key("local-tab"), &a.localTab, "歌曲", "歌手", "专辑") {
-			a.localResetList = true
-		}
-		if len(a.localTracks) > 0 {
+	}
+	path := func(align ui.Align) {
+		ui.Text(c, a.localDir()).FontSize(12).TextColor(p.faint).SingleLine().Shrink(1).MinWidth(0).TextAlign(align)
+	}
+	// On a phone the three buttons fill the row, so the folder path goes
+	// underneath instead of being squeezed off the edge.
+	if a.phone {
+		ui.Column(c).Gap(8).AlignItems(ui.Stretch).Margin(0, 0, 10, 0).Children(func() {
+			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(buttons)
+			path(ui.Start)
+		})
+	} else {
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Margin(0, 0, 10, 0).Children(func() {
+			buttons()
 			ui.Box(c).Grow(1)
-			ui.TextInput(c.Key("local-filter"), &a.localFilter).
-				Placeholder("筛选歌名、歌手或专辑").FontSize(13).Width(260)
+			path(ui.End)
+		})
+	}
+	filter := func(w float32) {
+		in := ui.TextInput(c.Key("local-filter"), &a.localFilter).
+			Placeholder("筛选歌名、歌手或专辑").FontSize(13)
+		if w > 0 {
+			in.Width(w)
+		} else {
+			in.FillWidth()
 		}
-	})
+	}
+	if a.phone {
+		// A 260px field beside the three tabs runs off a phone's screen.
+		// Let the tabs have their row, and give the field one of its own.
+		ui.Column(c).Gap(10).AlignItems(ui.Stretch).Margin(0, 0, 8, 0).Children(func() {
+			if segmented(c.Key("local-tab"), &a.localTab, "歌曲", "歌手", "专辑") {
+				a.localResetList = true
+			}
+			if len(a.localTracks) > 0 {
+				filter(0)
+			}
+		})
+	} else {
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Margin(0, 0, 8, 0).Children(func() {
+			if segmented(c.Key("local-tab"), &a.localTab, "歌曲", "歌手", "专辑") {
+				a.localResetList = true
+			}
+			if len(a.localTracks) > 0 {
+				ui.Box(c).Grow(1)
+				filter(260)
+			}
+		})
+	}
 }
 
 // localGroupsPage lists the artists of the library, or the albums its songs

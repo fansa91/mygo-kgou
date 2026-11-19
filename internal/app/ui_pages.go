@@ -16,7 +16,10 @@ const pagePad = 40
 // columns returns how many cards of at least min DIPs fit across the page.
 func (a *app) columns(c *ui.Context, min float32) int {
 	w, _ := c.Size()
-	inner := w - sidebarWidth - 2*pagePad
+	inner := w - 2*pagePad
+	if !a.phone {
+		inner -= sidebarWidth
+	}
 	return max(2, int((inner+20)/(min+20)))
 }
 
@@ -366,7 +369,11 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 	// An album's page has no column of the album its songs are on, and
 	// neither has one of the local library's albums.
 	onAlbum := a.route.page == pageAlbum || a.route.page == pageLocal && strings.HasPrefix(a.localPickRef, "album:")
-	wide := w-sidebarWidth > 820 && !onAlbum
+	inner := w - 2*pagePad
+	if !a.phone {
+		inner -= sidebarWidth
+	}
+	wide := inner > 820 && !onAlbum
 	top, bottom := a.insets(c)
 	// Rows out of view are not built, their marks with them: a list
 	// scrolled away from its start or end has content under the bars.

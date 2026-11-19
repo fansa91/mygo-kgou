@@ -14,6 +14,9 @@ import (
 	"sync"
 
 	"github.com/egoist/mygo/audio"
+	// The formats mygo decodes itself: FLAC, and an Ogg's Vorbis.
+	"github.com/egoist/mygo/audio/flac"
+	"github.com/egoist/mygo/audio/vorbis"
 	gomp3 "github.com/hajimehoshi/go-mp3"
 
 	"netease-music-mygo/internal/netease"
@@ -347,19 +350,26 @@ type stream interface {
 	source() (*download, *spectrum)
 }
 
-// openStream opens the song dl fetches, MP3, FLAC or Ogg Vorbis, as its first
+// openStream opens the song dl fetches, MP3, FLAC, Ogg or M4A, as its first
 // bytes say. An MP3 says nothing of its length: durationMs is it.
 func openStream(dl *download, durationMs int64) (stream, error) {
 	off := id3Size(dl)
 	if dl.waitFor(off+8) >= off+8 {
 		switch string(dl.peek(off, 4)) {
 		case "fLaC":
-			return openFLACStream(dl)
+			return openSound(dl, durationMs, flac.NewDecoder)
 		case "OggS":
 			// What the 概念版 streams, at the qualities its player is
 			// given rather than as MP3: an MP3 decoder reads nothing of it.
-			// The same pages carry Opus, as the listener's own .opus do.
-			return openOggStream(dl, durationMs)
+			// The same pages carry Opus, as the listener's own .opus do,
+			// which mygo has no decoder for.
+			if oggOpus(dl) {
+				return openOggStream(dl, durationMs)
+			}
+			// Vorbis's decoder reads the end of the file to learn its
+			// length, so one fetched from the service plays once it has
+			// all come in; a file of the listener's is whole anyway.
+			return openSound(dl, durationMs, vorbis.NewDecoder)
 		}
 		// An MP4 keeps its sound in mdat, behind the boxes that say what
 		// it is; the first of them names the file.
@@ -394,11 +404,9 @@ func openShared(dl *download, durationMs int64) (stream, error) {
 	switch s := s.(type) {
 	case *mp3Stream:
 		s.spec, s.drop = nil, dl.release
-	case *flacStream:
+	case *soundStream:
 		s.spec, s.drop = nil, dl.release
 	case *oggStream:
-		s.spec, s.drop = nil, dl.release
-	case *m4aStream:
 		s.spec, s.drop = nil, dl.release
 	}
 	return s, nil

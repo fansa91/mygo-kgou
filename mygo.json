@@ -16,5 +16,14 @@
     "comment": "第三方酷狗音乐桌面客户端",
     "categories": ["AudioVideo", "Audio", "Player"],
     "webview": false
+  },
+  "ios": {
+    "minimumSystemVersion": "17.0",
+    "orientations": ["portrait", "landscape"],
+    "backgroundModes": ["audio"]
+  },
+  "android": {
+    "minSdk": 26,
+    "permissions": ["INTERNET", "WAKE_LOCK", "FOREGROUND_SERVICE"]
   }
 }

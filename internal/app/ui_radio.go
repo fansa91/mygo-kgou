@@ -362,7 +362,11 @@ func (a *app) fmCard(c *ui.Context) {
 	if tr != nil {
 		art = a.art.get(netease.Sized(tr.Album.PicURL, 600), true)
 	}
-	card := ui.Box(c.Key("fm-card")).Height(320).Radius(24).Background(ui.Hex("#232328")).TextColor(white).
+	cardHeight := float32(320)
+	if a.phone {
+		cardHeight = 250
+	}
+	card := ui.Box(c.Key("fm-card")).Height(cardHeight).Radius(24).Background(ui.Hex("#232328")).TextColor(white).
 		Shadow(0, 18, 44, -16, a.pal.cardShade)
 	in := artIn(card, backdrop(art))
 	card.Children(func() {
@@ -376,8 +380,15 @@ func (a *app) fmCard(c *ui.Context) {
 				{Color: ui.RGBA(0, 0, 0, 0.35), At: 0},
 				{Color: ui.RGBA(0, 0, 0, 0.1), At: 1},
 			}})
-		ui.Row(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Padding(36, 40).Gap(40).AlignItems(ui.Center).Children(func() {
-			a.fmCovers(c, tr)
+		// A phone's card is far narrower than the desktop's: keep the
+		// cover and the gaps in step with the width, or the song's name
+		// and start button are pushed off the edge.
+		cover, pad, gap := float32(232), float32(40), float32(40)
+		if a.phone {
+			cover, pad, gap = 112, 18, 16
+		}
+		ui.Row(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Padding(pad*0.9, pad).Gap(gap).AlignItems(ui.Center).Children(func() {
+			a.fmCovers(c, tr, cover)
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
 				label := "私人 FM · " + fmModes[a.fmMode].label
 				if onFM {
@@ -440,9 +451,9 @@ func (a *app) fmCard(c *ui.Context) {
 
 // fmCovers stacks the cover playing over the next one's, which peeks out
 // behind it, tilted, as the FM's own player shows them.
-func (a *app) fmCovers(c *ui.Context, tr *netease.Track) {
-	const size = 232
-	ui.Box(c).Size(size+36, size).Shrink(0).Children(func() {
+func (a *app) fmCovers(c *ui.Context, tr *netease.Track, size float32) {
+	stack := size / 232 * 36
+	ui.Box(c).Size(size+stack, size).Shrink(0).Children(func() {
 		var next *netease.Track
 		if tr != nil {
 			if order, at := a.pl.PlayOrder(); at >= 0 && at+1 < len(order) {
@@ -450,7 +461,7 @@ func (a *app) fmCovers(c *ui.Context, tr *netease.Track) {
 			}
 		}
 		if next != nil {
-			back := ui.Box(c.Key(next.ID)).Absolute().Top(16).Left(36).Size(size-32, size-32).Radius(14).Opacity(0.55).Background(white.Alpha(0.12)).
+			back := ui.Box(c.Key(next.ID)).Absolute().Top(stack*16/36).Left(stack).Size(size-stack*32/36, size-stack*32/36).Radius(14).Opacity(0.55).Background(white.Alpha(0.12)).
 				Shadow(0, 10, 24, -8, ui.RGBA(0, 0, 0, 0.4))
 			back.AnimatePose(ui.Pose{Rotate: 6, X: 14}, ui.Animation{Spring: ui.SpringOptions{Duration: 500 * time.Millisecond, Bounce: 0.2}})
 			back.Children(func() { a.coverFill(c, next.Album.PicURL, 400, 14) })
@@ -478,7 +489,7 @@ func (a *app) fmCovers(c *ui.Context, tr *netease.Track) {
 // heartCard starts heart mode: songs like those the listener likes.
 func (a *app) heartCard(c *ui.Context, p palette) {
 	on := a.pl.Radio() == heartRadio
-	ui.Row(c).Padding(22, 26).Gap(20).Radius(18).AlignItems(ui.Center).Background(p.hover).Children(func() {
+	iconAndText := func() {
 		ui.Box(c).Size(56, 56).Radius(16).Center().Shrink(0).
 			LinearGradient(ui.LinearGradient{Angle: 135, Oklab: true, From: ui.Oklch(0.72, 0.17, 10), To: ui.Oklch(0.58, 0.22, 350)}).
 			TextColor(white).Children(func() { ui.Icon(c, iconHeartFill).Size(26, 26) })
@@ -486,6 +497,8 @@ func (a *app) heartCard(c *ui.Context, p palette) {
 			ui.Text(c, "从你喜欢的音乐出发").FontSize(15).FontWeight(700)
 			ui.Text(c, "根据你红心过的歌曲，智能推荐风格相似的音乐，与你的喜欢穿插播放").FontSize(12.5).TextColor(p.muted)
 		})
+	}
+	buttons := func() {
 		if on {
 			if pillButton(c.Key("exit-heart"), iconX, "退出心动模式", p.press.Over(p.bg), p.text).Clicked() {
 				a.exitRadio()
@@ -503,5 +516,19 @@ func (a *app) heartCard(c *ui.Context, p palette) {
 		if pillButton(c.Key("heart"), iconHeartFill, label, p.accent, p.onAccent).Clicked() {
 			a.startHeartMode()
 		}
+	}
+	// A phone has no room for the icon, the text and the buttons in one
+	// row: stack them so the description can wrap instead of being
+	// squeezed into a narrow column.
+	if a.phone {
+		ui.Column(c).Padding(20, 20, 20, 20).Gap(16).Radius(18).AlignItems(ui.Stretch).Background(p.hover).Children(func() {
+			ui.Row(c).Gap(14).AlignItems(ui.Center).Children(iconAndText)
+			ui.Row(c).Gap(8).Children(buttons)
+		})
+		return
+	}
+	ui.Row(c).Padding(22, 26).Gap(20).Radius(18).AlignItems(ui.Center).Background(p.hover).Children(func() {
+		iconAndText()
+		buttons()
 	})
 }

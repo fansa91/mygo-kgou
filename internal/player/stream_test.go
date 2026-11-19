@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -133,16 +134,16 @@ func TestFLACMetadataLength(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref := decodeAll(t, b)
-	start, err := flacDataStart(downloaded(b))
-	if err != nil {
-		t.Fatal(err)
-	}
 	// The last block's header is no longer the last: a padding block of 6
-	// bytes follows it.
+	// bytes follows it. Its end is where the first frame of the song starts.
 	off := int64(4)
-	for b[off]&0x80 == 0 {
-		off += 4 + (int64(b[off+1])<<16 | int64(b[off+2])<<8 | int64(b[off+3]))
+	length := func(at int64) int64 {
+		return int64(b[at+1])<<16 | int64(b[at+2])<<8 | int64(b[at+3])
 	}
+	for b[off]&0x80 == 0 {
+		off += 4 + length(off)
+	}
+	start := off + 4 + length(off)
 	padded := append([]byte(nil), b[:start]...)
 	padded[off] &^= 0x80
 	padded = append(padded, 0x81, 0, 0, 6, 0, 0, 0, 0, 0, 0)
@@ -159,6 +160,52 @@ func TestFLACMetadataLength(t *testing.T) {
 	}
 	if d := maxDiff(buf[:n], ref); d != 0 {
 		t.Errorf("off by up to %.4f", d)
+	}
+}
+
+// A FLAC plays from its first bytes, while the rest is still coming in:
+// mygo's decoder seeks through the file, but only to reach the bytes it
+// reads forward from.
+func TestFLACStreamsWhileDownloading(t *testing.T) {
+	b, err := os.ReadFile("testdata/seek.flac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const first = 64 << 10
+	dl := &download{size: int64(len(b)), cancel: func() {}}
+	dl.cond.L = &dl.mu
+	later := make(chan struct{})
+	var once sync.Once
+	goOn := func() { once.Do(func() { close(later) }) }
+	defer goOn()
+	go func() {
+		dl.write(b[:first])
+		<-later
+		dl.write(b[first:])
+		dl.mu.Lock()
+		dl.done = true
+		dl.cond.Broadcast()
+		dl.mu.Unlock()
+	}()
+	// If it waits for the end of the song, let the rest come in rather
+	// than leave the test stuck, and fail on the time it took.
+	timer := time.AfterFunc(3*time.Second, goOn)
+	defer timer.Stop()
+	start := time.Now()
+	s, err := openStream(dl, 5000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]float32, 4096)
+	n, err := s.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 || peakOf(buf[:n]) < 0.1 {
+		t.Fatalf("read %d frames, peak %v", n, peakOf(buf[:n]))
+	}
+	if elapsed := time.Since(start); elapsed >= 3*time.Second {
+		t.Fatalf("waited %v for the whole file to come in", elapsed)
 	}
 }
 

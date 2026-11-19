@@ -6,23 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	aacpcm "github.com/tphakala/go-aac/pcm"
-	aacm4a "github.com/tphakala/go-m4a/aacm4a"
 )
-
-// tone returns n frames of a sine, as interleaved little-endian PCM of 16
-// bits, which is what the encoders of the tests take.
-func tone(n, rate, channels int, freq float64) []byte {
-	out := make([]byte, n*channels*2)
-	for i := range n {
-		v := int16(math.Sin(2*math.Pi*freq*float64(i)/float64(rate)) * 0.5 * 32767)
-		for c := range channels {
-			binary.LittleEndian.PutUint16(out[(i*channels+c)*2:], uint16(v))
-		}
-	}
-	return out
-}
 
 // peakOf returns the loudest sample of a read, which a song of silence has
 // none of.
@@ -56,28 +40,16 @@ func openFileStream(t *testing.T, path string, durationMs int64) stream {
 }
 
 // An M4A of AAC — what a phone keeps its music in — plays, and goes where it
-// is asked to as well as any other song.
+// is asked to as well as any other song. The file is testdata/tone.m4a: two
+// seconds of a 440 Hz tone, 44.1 kHz, two channels.
 func TestM4AAACPlays(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "tone.m4a")
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := aacpcm.Config{SampleRate: 44100, BitDepth: 16, Channels: 2}
-	if err := aacm4a.EncodeInterleaved(f, cfg, tone(44100*2, 44100, 2, 440)); err != nil {
-		f.Close()
-		t.Fatalf("encode: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	s := openFileStream(t, path, 2000)
-	if s.SampleRate() != 44100 || s.Channels() != 2 {
+	const rate = 44100
+	s := openFileStream(t, filepath.Join("testdata", "tone.m4a"), 2000)
+	if s.SampleRate() != rate || s.Channels() != 2 {
 		t.Fatalf("stream = %d Hz, %d channels", s.SampleRate(), s.Channels())
 	}
-	if total := s.Len(); total < 44100*19/10 || total > 44100*21/10 {
-		t.Errorf("length = %d frames, want about %d", total, 44100*2)
+	if total := s.Len(); total < rate*19/10 || total > rate*21/10 {
+		t.Errorf("length = %d frames, want about %d", total, rate*2)
 	}
 	buf := make([]float32, 4096)
 	n, err := s.Read(buf)
@@ -88,7 +60,7 @@ func TestM4AAACPlays(t *testing.T) {
 		t.Fatalf("read %d frames, peak %v", n, peakOf(buf[:n]))
 	}
 	// A second in, the sound is still there, and the position says so.
-	if err := s.SetPosition(44100); err != nil {
+	if err := s.SetPosition(rate); err != nil {
 		t.Fatal(err)
 	}
 	n, err = s.Read(buf)
@@ -98,8 +70,8 @@ func TestM4AAACPlays(t *testing.T) {
 	if peak := peakOf(buf[:n]); peak < 0.1 {
 		t.Errorf("after the seek, peak %v", peak)
 	}
-	if got := s.Len() - int64(n); got <= 0 {
-		t.Errorf("length %d, read %d after seeking a second in", s.Len(), n)
+	if got := s.Len() - rate; got <= 0 {
+		t.Errorf("length %d, seeked a second in", s.Len())
 	}
 }
 
@@ -131,7 +103,8 @@ func alacM4A(t *testing.T, samples []int16, rate int) []byte {
 		stco := m4aBox("stco", u32(0), u32(1), u32(offset))
 		stbl := m4aBox("stbl", stsd, stts, stsc, stsz, stco)
 		mdhd := m4aBox("mdhd", u32(0), u32(0), u32(0), u32(uint32(rate)), u32(uint32(len(samples))), u16(0x55c4), u16(0))
-		mdia := m4aBox("mdia", mdhd, m4aBox("minf", stbl))
+		hdlr := m4aBox("hdlr", u32(0), u32(0), []byte("soun"), make([]byte, 12))
+		mdia := m4aBox("mdia", mdhd, hdlr, m4aBox("minf", stbl))
 		mvhd := m4aBox("mvhd", u32(0), u32(0), u32(0), u32(uint32(rate)), u32(uint32(len(samples))),
 			u32(0x00010000), u16(0x0100), u16(0), make([]byte, 8), make([]byte, 36), make([]byte, 24), u32(2))
 		return m4aBox("moov", mvhd, m4aBox("trak", mdia))
@@ -199,7 +172,9 @@ func TestM4AALACPlays(t *testing.T) {
 	}
 
 	s := openFileStream(t, path, 1000)
-	if s.SampleRate() != rate || s.Channels() != 1 {
+	// mygo's MP4 decoder hands back stereo even for a mono track: the
+	// samples of one channel in both.
+	if s.SampleRate() != rate || s.Channels() != 2 {
 		t.Fatalf("stream = %d Hz, %d channels", s.SampleRate(), s.Channels())
 	}
 	buf := make([]float32, 4096)
@@ -211,10 +186,10 @@ func TestM4AALACPlays(t *testing.T) {
 		t.Fatal("nothing decoded")
 	}
 	// Lossless says the samples come back as they went in.
-	for i, got := range buf[:min(n, 1000)] {
+	for i := 0; i < min(n/2, 1000); i++ {
 		want := float32(samples[i]) / (1 << 15)
-		if d := math.Abs(float64(got - want)); d > 1.0/(1<<15) {
-			t.Fatalf("frame %d = %v, want %v", i, got, want)
+		if d := math.Abs(float64(buf[2*i] - want)); d > 1.0/(1<<15) {
+			t.Fatalf("frame %d = %v, want %v", i, buf[2*i], want)
 		}
 	}
 	// A seek lands where it is asked to, which for a lossless file is exact.
@@ -284,17 +259,7 @@ func (w *bitWriter) write(v uint32, bits int) {
 // An M4A is read by seeking through it, so it is played once it is whole: a
 // song still coming in is refused rather than read as silence.
 func TestM4APlaysOnlyWholeFiles(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "coming.m4a")
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := aacpcm.Config{SampleRate: 44100, BitDepth: 16, Channels: 2}
-	if err := aacm4a.EncodeInterleaved(f, cfg, tone(44100, 44100, 2, 440)); err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	song, err := os.ReadFile(path)
+	song, err := os.ReadFile(filepath.Join("testdata", "tone.m4a"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +275,7 @@ func TestM4APlaysOnlyWholeFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a file that came in whole: %v", err)
 	}
-	if s.rate != 44100 || s.ch != 2 {
-		t.Errorf("opened as %d Hz, %d channels", s.rate, s.ch)
+	if s.SampleRate() != 44100 || s.Channels() != 2 {
+		t.Errorf("opened as %d Hz, %d channels", s.SampleRate(), s.Channels())
 	}
 }

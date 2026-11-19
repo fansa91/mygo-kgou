@@ -29,7 +29,14 @@ const (
 	pageLocal
 	pageCloud
 	pageRanking
+	pageSettings // a page on phones; a window on the desktop
 )
+
+type pageState struct {
+	trackList  ui.ListState
+	pageScroll ui.ScrollState
+	navScroll  ui.ScrollState
+}
 
 type route struct {
 	page pageKind
@@ -127,6 +134,15 @@ type app struct {
 	pageScroll ui.ScrollState
 	navScroll  ui.ScrollState
 	scrolled   route // the page trackList and pageScroll are of
+	// On phones the pages stay in one window, so their list and scroll
+	// states are kept for each route: going back to a playlist finds the
+	// row it left, rather than starting it from the top again.
+	pageStates map[route]pageState
+
+	// The phone shell: which tab of the bottom bar shows, and whether it
+	// is laid out as a phone. The desktop keeps its sidebar and windows.
+	phoneTab int
+	phone    bool
 
 	// The list's select mode: which of its songs the listener has marked to
 	// download together, whether the page's list is selecting, the row a
@@ -269,6 +285,8 @@ func Run() error {
 		lyricAt:     -1,
 		queueAt:     -1,
 		cacheUsed:   -1,
+		pageStates:  map[route]pageState{},
+		phone:       runtime.GOOS == "ios" || runtime.GOOS == "android",
 	}
 	moveOldData()
 	a.useUpdater()

@@ -332,6 +332,25 @@ func (a *app) empty(c *ui.Context, msg string) {
 // artistPhotoSize is the width of an artist's round photo on their page.
 const artistPhotoSize = 212
 
+// profilePhotoSize is the round photo beside the name on an artist's or the
+// listener's own page. A phone keeps the rest of the row for the name and
+// its buttons: the desktop's 212px leaves under 100px on a 390px screen,
+// which folds the name into a strip.
+func (a *app) profilePhotoSize() float32 {
+	if a.phone {
+		return 108
+	}
+	return artistPhotoSize
+}
+
+// profileGap is the space between that photo and the text beside it.
+func (a *app) profileGap() float32 {
+	if a.phone {
+		return 16
+	}
+	return 28
+}
+
 func (a *app) artistHeader(c *ui.Context, d *artistData) {
 	p := a.pal
 	ar := d.profile
@@ -340,13 +359,14 @@ func (a *app) artistHeader(c *ui.Context, d *artistData) {
 	if a.artistTab == artistLatest && d.latest != nil {
 		songs = d.latest
 	}
-	ui.Row(c).Gap(28).AlignItems(ui.End).Padding(0, 0, 8, 0).Children(func() {
+	size := a.profilePhotoSize()
+	ui.Row(c).Gap(a.profileGap()).AlignItems(ui.End).Padding(0, 0, 8, 0).Children(func() {
 		photo := ar.Avatar
 		if photo == "" {
 			photo = ar.PicURL
 		}
-		ui.Box(c).Size(artistPhotoSize, artistPhotoSize).Radius(artistPhotoSize/2).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
-			a.coverFill(c, photo, 600, artistPhotoSize/2)
+		ui.Box(c).Size(size, size).Radius(size/2).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
+			a.coverFill(c, photo, 600, size/2)
 		})
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
 			ui.Text(c, "歌手").FontSize(12).FontWeight(600).TextColor(p.accent)
@@ -400,8 +420,9 @@ func (a *app) artistHeader(c *ui.Context, d *artistData) {
 var artistTabTitles = [...]string{"歌曲", "歌曲", "专辑", "动态"}
 
 func (a *app) artistHeaderSkeleton(c *ui.Context, s shimmer) {
-	ui.Row(c).Gap(28).AlignItems(ui.End).Padding(0, 0, 8, 0).Children(func() {
-		s.bone(c, artistPhotoSize/2).Size(artistPhotoSize, artistPhotoSize)
+	size := a.profilePhotoSize()
+	ui.Row(c).Gap(a.profileGap()).AlignItems(ui.End).Padding(0, 0, 8, 0).Children(func() {
+		s.bone(c, size/2).Size(size, size)
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
 			s.text(c, 12, 1.3).Width(24)
 			s.text(c, 30, 1.2).WidthPercent(32)

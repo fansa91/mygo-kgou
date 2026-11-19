@@ -1,14 +1,24 @@
 # 酷狗音乐 · MyGo
 
-用 Go 和 [MyGo](https://github.com/egoist/mygo) 写的第三方酷狗音乐桌面客户端，原生界面，无 WebView。
+用 Go 和 [MyGo](https://github.com/egoist/mygo) 写的第三方酷狗音乐客户端，原生界面，无 WebView。桌面之外也在做手机端：同一份代码，iPhone / iPad 与 Android 各出一个应用。
 
 ## 界面
+
+桌面：
 
 | 为你推荐 | 每日推荐 |
 | --- | --- |
 | ![为你推荐](docs/shots/r-home.png) | ![每日推荐](docs/shots/r-daily.png) |
 | **搜索** | **正在播放** |
 | ![搜索](docs/shots/r-search.png) | ![正在播放](docs/shots/r-np.png) |
+
+手机端是同一套界面：底部四个页签（首页 / 发现 / 乐库 / 我的），上方一条迷你播放条，点它展开正在播放页。
+
+| 首页 | 正在播放 | 搜索 |
+| --- | --- | --- |
+| ![手机首页](docs/shots/m-home.png) | ![手机正在播放](docs/shots/m-nowplaying.png) | ![手机搜索](docs/shots/m-search.png) |
+| **本地音乐** | **设置** | |
+| ![手机本地音乐](docs/shots/m-local.png) | ![手机设置](docs/shots/m-settings.png) | |
 
 ## 功能
 
@@ -38,6 +48,18 @@
 - 喜欢歌曲、播放队列、随机与循环播放
 - 浅色 / 深色 / 跟随系统
 
+## 系统要求
+
+| 平台 | 最低版本 |
+| --- | --- |
+| Windows | Windows 10 |
+| macOS | 13.0 |
+| Linux | GTK 3（原生界面，不依赖 WebKitGTK） |
+| iOS | 17.0 |
+| Android | 8.0（API 26） |
+
+客户端用原生界面，不显示网页，所以 Windows 不必装 WebView2 Runtime、Linux 只需 GTK 3。
+
 ## 构建
 
 需要 Go 1.27+。
@@ -48,14 +70,28 @@ go tool mygo build   # 打包到 build/
 go test ./...        # 运行测试
 ```
 
+手机端由 GitHub Actions 的 `Mobile` 工作流在每次发版标签上构建，也可在 Actions 页手动触发：
+
+- **iOS**：产出模拟器用的 `.app`（免签名、免开发者账号），因为设备版 `.ipa` 必须要描述文件签名；真机与上架需要另行配置 `ios.team` 与描述文件。最低支持 iOS 17.0（mygo 宿主用到了仅 iOS 17 才有的系统 API，见上表）。
+- **Android**：产出 `.apk` 与 `.aab`，用上传密钥签名。在仓库的 Secrets 里设置：
+
+| 名称 | 类型 | 用途 |
+| --- | --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | Secret | `.jks` 上传密钥的 base64（`base64 -w0 upload.jks`） |
+| `ANDROID_KEYSTORE_PASSWORD` | Secret | 密钥库密码 |
+| `ANDROID_KEY_PASSWORD` | Secret | 密钥密码；与密钥库密码相同可留空 |
+| `ANDROID_KEY_ALIAS` | Secret | 密钥别名，默认 `upload` |
+
+不设置这些变量时仍会构建，但 Android 用调试密钥签名，Google Play 不接受。
+
 ## 致谢
 
 - [MyGo](https://github.com/egoist/mygo)：原生 UI 与应用框架
 - [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi)：eapi 加密与登录流程的参考
 - [folia-major](https://github.com/chthollyphile/folia-major)：歌词动画效果的参考
 - [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)、[Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) 与 [Silero VAD](https://github.com/snakers4/silero-vad)：本机语音识别
-- [go-m4a](https://github.com/tphakala/go-m4a) 与 [saprobe-alac](https://github.com/mycophonic/saprobe-alac)：M4A 里的 AAC 与 ALAC
-- [goxiph](https://github.com/faide/goxiph) 与 [gopus](https://github.com/thesyncim/gopus)：Ogg Vorbis 与 Opus
+- MyGo 自带的解码器：M4A 里的 AAC 与 ALAC、FLAC、Ogg Vorbis
+- [gopus](https://github.com/thesyncim/gopus)：Ogg Opus
 
 本项目与酷狗音乐官方无关，音乐版权归各权利人所有。
 

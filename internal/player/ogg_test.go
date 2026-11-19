@@ -7,9 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/faide/goxiph/audio"
-	"github.com/faide/goxiph/vorbis"
-	"github.com/faide/goxiph/vorbiscomment"
 	"github.com/thesyncim/gopus"
 	gopusogg "github.com/thesyncim/gopus/container/ogg"
 )
@@ -38,30 +35,6 @@ func interleaved(chans [][]float32) []float32 {
 		}
 	}
 	return out
-}
-
-// vorbisFile writes a song as an Ogg Vorbis file, with the tags asked for.
-func vorbisFile(t *testing.T, chans [][]float32, rate int) string {
-	t.Helper()
-	var tags vorbiscomment.Tags
-	tags.Add("TITLE", "晴天")
-	tags.Add("ARTIST", "周杰伦")
-	tags.Add("ALBUM", "叶惠美")
-	tags.Add("TRACKNUMBER", "3")
-	tags.Add("DATE", "2003")
-	enc, err := vorbis.NewEncoder(audio.Format{SampleRate: rate, Channels: len(chans)}, tags, vorbis.EncoderOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var buf bytes.Buffer
-	if err := enc.Encode(&buf, chans, 0x5eed); err != nil {
-		t.Fatalf("encode vorbis: %v", err)
-	}
-	path := filepath.Join(t.TempDir(), "song.ogg")
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }
 
 // opusFile writes a song as an Ogg Opus file.
@@ -100,12 +73,15 @@ func opusFile(t *testing.T, chans [][]float32, rate int) string {
 	return path
 }
 
-// An Ogg Vorbis file plays — the format the 概念版 streams, and the one the
-// player used to decode with another library — and a seek carries on in the
-// sound.
+// An Ogg Vorbis file plays — the format the 概念版 streams — and a seek
+// carries on in the sound. The file is testdata/tone.ogg: two seconds of a
+// 440 Hz tone, 44.1 kHz, two channels.
 func TestOggVorbisPlays(t *testing.T) {
 	const rate = 44100
-	path := vorbisFile(t, wave(rate*2, rate, 2, 440), rate)
+	path := filepath.Join("testdata", "tone.ogg")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
 	s := openFileStream(t, path, 2000)
 	if s.SampleRate() != rate || s.Channels() != 2 {
 		t.Fatalf("stream = %d Hz, %d channels", s.SampleRate(), s.Channels())
@@ -165,16 +141,23 @@ func TestOggOpusPlays(t *testing.T) {
 	}
 }
 
-// The headers of an Ogg file say which codec it holds, and a file of one the
-// app does not play is refused rather than played as noise.
+// The first packet of an Ogg file says which codec it holds, so that the
+// op the app decodes itself is told apart from the Vorbis mygo decodes.
 func TestOggCodecs(t *testing.T) {
-	if n, err := oggHeaderCount([]byte("OpusHead\x01")); err != nil || n != 2 {
-		t.Errorf("Opus: %d headers, %v", n, err)
+	const rate = 48000
+	opus := opusFile(t, wave(rate, rate, 1, 440), rate)
+	b, err := os.ReadFile(opus)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if n, err := oggHeaderCount([]byte("\x01vorbis")); err != nil || n != 3 {
-		t.Errorf("Vorbis: %d headers, %v", n, err)
+	if !oggOpus(downloaded(b)) {
+		t.Error("an Opus file was not told from Vorbis")
 	}
-	if _, err := oggHeaderCount([]byte("\x7fFLAC")); err == nil {
-		t.Error("a codec the app does not play was taken")
+	b, err = os.ReadFile(filepath.Join("testdata", "tone.ogg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oggOpus(downloaded(b)) {
+		t.Error("a Vorbis file was taken for Opus")
 	}
 }

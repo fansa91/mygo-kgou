@@ -90,8 +90,11 @@ func (a *app) nowPlayingView(c *ui.Context) {
 
 	root := ui.Box(c.Key("now-playing")).Absolute().Top(0).Left(0).Right(0).Bottom(0).
 		Background(ui.Hex("#0b0b0d")).TextColor(white)
-	// The pointer is over the view whenever it is in the window.
-	pointerIn := root.Hovered()
+	// The pointer is over the view whenever it is in the window. A phone
+	// has no pointer to hover: there, the close chevron and the pane tabs
+	// stay shown, or a listener could neither leave Now Playing nor reach
+	// the lyrics or the queue.
+	pointerIn := root.Hovered() || a.phone
 	root.Children(func() {
 		a.backdrop(c, shown, tint)
 		// Over the backdrop, which is positioned too: positioned elements
@@ -140,7 +143,7 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 		if a.npPane == paneStage {
 			// The stage takes the whole view: the lyrics are the show, the
 			// controls a slim bar at the foot.
-			reveal(npTabsRow(c, w), pointerIn).Children(func() {
+			reveal(a.npTabsRow(c, w), pointerIn).Children(func() {
 				a.paneTabs(c)
 				a.stageStyleButton(c)
 			})
@@ -154,17 +157,28 @@ func (a *app) nowPlayingBody(c *ui.Context, tr *netease.Track, art *artwork, acc
 			return
 		}
 
+		// On a phone the two desktop columns have to share a narrow
+		// screen: keep the cover around half the width with a small gap,
+		// instead of the desktop's 280px column and 72px gutter, which
+		// push the pane off the edge.
+		gap := float32(72)
 		side := float32(math.Min(float64(w)*0.36, 440))
+		if a.phone {
+			gap = 16
+			side = w * 0.52
+		}
 		// The cover leaves room above it for the tabs, starting as far
 		// under them as the wall's song does.
 		coverSize := min(side, h-436)
-		// The column is as wide as the cover, for the cover, what plays
-		// and the tabs over it to start at one edge, but wide enough for
-		// the controls.
-		side = max(coverSize, 280)
-		padX := npSideX(w)
-		reveal(npTabsRow(c, w), pointerIn).Children(func() { a.paneTabs(c) })
-		ui.Row(c).Grow(1).Padding(0, padX, 44, padX).Gap(72).AlignItems(ui.Stretch).Children(func() {
+		if !a.phone {
+			// The column is as wide as the cover, for the cover, what plays
+			// and the tabs over it to start at one edge, but wide enough for
+			// the controls. A phone has no room for that floor.
+			side = max(coverSize, 280)
+		}
+		padX := a.npSideX(w)
+		reveal(a.npTabsRow(c, w), pointerIn).Children(func() { a.paneTabs(c) })
+		ui.Row(c).Grow(1).Padding(0, padX, 44, padX).Gap(gap).AlignItems(ui.Stretch).Children(func() {
 			var coverTop float32
 			ui.Column(c).Width(side).Justify(ui.Center).Gap(0).Children(func() {
 				coverTop = ui.Box(c.Key("cover-top")).Height(0).LayoutBounds().Y
@@ -244,8 +258,12 @@ const npMaxWidth = 1280
 
 // npSideX is how far in from the sides of a view w wide the cover and the
 // pane beside it are: in a wide window they keep together in the middle,
-// rather than the pane taking all the width the cover leaves.
-func npSideX(w float32) float32 {
+// rather than the pane taking all the width the cover leaves; a phone
+// needs only a small margin.
+func (a *app) npSideX(w float32) float32 {
+	if a.phone {
+		return 16
+	}
 	return max(72, (w-npMaxWidth)/2)
 }
 
@@ -257,8 +275,8 @@ const npTabsHeight = 28
 // pane, so that they stay put going from one to another: at the top, level
 // with the cover's left. They start from the left, so that only the last,
 // the comments, moves as its count changes.
-func npTabsRow(c *ui.Context, w float32) ui.Element {
-	return ui.Row(c.Key("tabs")).Absolute().Top(topBar(c)).Left(npSideX(w)).Height(npTabsHeight).Gap(6).AlignItems(ui.Center)
+func (a *app) npTabsRow(c *ui.Context, w float32) ui.Element {
+	return ui.Row(c.Key("tabs")).Absolute().Top(topBar(c)).Left(a.npSideX(w)).Height(npTabsHeight).Gap(6).AlignItems(ui.Center)
 }
 
 // reveal fades e in while the pointer is in the window, and out when it
@@ -511,7 +529,18 @@ func (a *app) lyricsPane(c *ui.Context, tr *netease.Track, h float32) {
 		scroll.Invisible()
 	}
 	defer a.quietCard(c, dim, h*0.18)
-	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: 30, weight: 800, lineHeight: 1.25, quiet: quiet}, a.settings.LyricsTrans, nil)
+	// The phone's lyrics share a narrow screen with the cover, so 30px
+	// would wrap a line into a heap of single characters. Fit the type to
+	// the room the pane gets beside the cover instead.
+	size := float32(30)
+	if a.phone {
+		w, _ := c.Size()
+		// The pane takes what's left of the width after the cover column
+		// (52%), the gap (16) and the two side margins (16 each).
+		paneW := w*0.48 - 48
+		size = max(17, min(paneW/7, 24))
+	}
+	a.timedLines(c, scroll, lines, pos, cur, lag, linesStyle{size: size, weight: 800, lineHeight: 1.25, quiet: quiet}, a.settings.LyricsTrans, nil)
 }
 
 // linesStyle is how timedLines sets its lines: the size, weight and
@@ -577,12 +606,13 @@ func (a *app) timedLines(c *ui.Context, scroll ui.Element, lines []lyrics.Line, 
 						}
 						if showTranslation {
 							// The translation of the line, and how it
-							// reads out, when the song has them.
+							// reads out, when the song has them. They follow
+							// the line's size, which is smaller on a phone.
 							if l.Translation != "" {
-								ui.Text(c, l.Translation).FontSize(17).FontWeight(600).TextColor(white.Alpha(0.7))
+								ui.Text(c, l.Translation).FontSize(st.size*0.567).FontWeight(600).TextColor(white.Alpha(0.7))
 							}
 							if l.Romanized != "" {
-								ui.Text(c, l.Romanized).FontSize(15).FontWeight(500).TextColor(white.Alpha(0.5))
+								ui.Text(c, l.Romanized).FontSize(st.size*0.5).FontWeight(500).TextColor(white.Alpha(0.5))
 							}
 						}
 					})

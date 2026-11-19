@@ -130,10 +130,11 @@ func (a *app) userPage(c *ui.Context) {
 	}
 	u := d.user
 	own := a.profile != nil && a.profile.UserID == id
+	size := a.profilePhotoSize()
 	a.scrollPage(c, func() {
-		ui.Row(c).Gap(28).AlignItems(ui.End).Children(func() {
-			ui.Box(c).Size(artistPhotoSize, artistPhotoSize).Radius(artistPhotoSize/2).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
-				a.coverFill(c, u.AvatarURL, 600, artistPhotoSize/2)
+		ui.Row(c).Gap(a.profileGap()).AlignItems(ui.End).Children(func() {
+			ui.Box(c).Size(size, size).Radius(size/2).Shadow(0, 18, 40, -10, p.cardShade).Children(func() {
+				a.coverFill(c, u.AvatarURL, 600, size/2)
 			})
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
 				ui.Text(c, "用户").FontSize(12).FontWeight(600).TextColor(p.accent)

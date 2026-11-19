@@ -6,3 +6,4 @@ mygo_windows_*.syso
 /.kgcache/
 /kgtest.exe
 *.test.exe
+/internal/app/testdata/frames/

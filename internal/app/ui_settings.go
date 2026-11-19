@@ -11,7 +11,13 @@ import (
 )
 
 // openSettings shows the settings window, opening it the first time.
+// On phones, where the app has one screen, it is a page in the stack.
 func (a *app) openSettings() {
+	if a.phone {
+		a.phoneTab = 3
+		a.open(route{page: pageSettings})
+		return
+	}
 	if a.settingsWin != nil {
 		a.settingsWin.Show()
 		a.settingsWin.Focus()
@@ -60,7 +66,9 @@ func (a *app) settingsView(c *ui.Context) {
 	t.Accent, t.AccentText = p.accent, p.onAccent
 	c.SetTheme(&t)
 	c.Root().Background(p.sidebar)
-	c.OnShortcut(ui.Cmd, ui.KeyW, func() { a.settingsWin.Close() })
+	if !a.phone {
+		c.OnShortcut(ui.Cmd, ui.KeyW, func() { a.settingsWin.Close() })
+	}
 	s := &a.settings
 
 	ui.Scroll(c).Fill().Padding(24, 28, 32, 28).Gap(8).Children(func() {
@@ -228,12 +236,29 @@ func (a *app) settingsView(c *ui.Context) {
 					}()
 				}
 			})
-			row("命名格式", "可用 {歌名}、{歌手}、{专辑}、{音质}、{时长}，用 / 分子文件夹；留空则用 {歌手} - {歌名}", func() {
-				in := ui.TextInput(c.Key("download-format"), &s.DownloadFormat).
-					Placeholder(defaultDownloadFormat).Label("命名格式").FontSize(13).Width(220)
-				// Kept as it is typed: there is nothing else to apply.
-				in.OnChange(func() { s.save() })
-			})
+			formatDesc := "可用 {歌名}、{歌手}、{专辑}、{音质}、{时长}，用 / 分子文件夹；留空则用 {歌手} - {歌名}"
+			// Kept as it is typed: there is nothing else to apply.
+			formatInput := func() ui.Element {
+				return ui.TextInput(c.Key("download-format"), &s.DownloadFormat).
+					Placeholder(defaultDownloadFormat).Label("命名格式").FontSize(13)
+			}
+			if a.phone {
+				// A 220px field beside the label leaves its description a
+				// thin 64px strip on a phone. The field goes full width
+				// under the label instead.
+				ui.Column(c).Padding(12, 16).Gap(10).Children(func() {
+					ui.Text(c, "命名格式").FontSize(13.5).FontWeight(500)
+					ui.Text(c, formatDesc).FontSize(12).TextColor(p.muted).LineHeight(1.4)
+					in := formatInput()
+					in.OnChange(func() { s.save() })
+					in.FillWidth()
+				})
+			} else {
+				row("命名格式", formatDesc, func() {
+					in := formatInput().Width(220)
+					in.OnChange(func() { s.save() })
+				})
+			}
 			row("下载音质", "下载时请求的音质；没有这一档时，退到能下到的最高一档", func() {
 				labels := make([]string, len(qualityLevels))
 				chosen := "无损（FLAC）"
