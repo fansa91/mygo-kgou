@@ -1,8 +1,7 @@
 # Builds the phone apps on a tag, next to the desktop release, and keeps
-# their artifacts on the release. iOS is built for the simulator: no
-# developer team or provisioning profile is needed, so the build cannot
-# sign an .ipa and does not try. Android is signed with the upload key
-# decoded from the repository's secrets.
+# their artifacts on the release. iOS is a signed, installable .ipa when the
+# signing secrets are set; without them it falls back to a simulator .app.
+# Android is signed with the upload key decoded from the repository's secrets.
 name: Mobile
 
 on:
@@ -18,7 +17,7 @@ env:
 
 jobs:
   ios:
-    name: iOS simulator
+    name: iOS
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -30,29 +29,76 @@ jobs:
         run: |
           v="${GITHUB_REF_NAME#v}"
           jq --arg v "$v" '.version = $v' mygo.json > mygo.json.tmp && mv mygo.json.tmp mygo.json
-      # A simulator build is ad hoc signed by the toolchain, with no team,
-      # profile or certificate. It runs in Simulator and cannot go to the
-      # App Store; that would need a signed .ipa and a developer account.
+
+      # A device .ipa needs a certificate in a keychain and a provisioning
+      # profile for the app's identifier. Decode both from secrets when they
+      # are set and point ios at them; mygo picks the identity and profile
+      # that match. Without the secrets, fall back to a simulator .app.
+      - name: Import the signing certificate and profile
+        id: sign
+        env:
+          IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          IOS_DISTRIBUTION: ${{ secrets.IOS_DISTRIBUTION }}
+        run: |
+          if [ -z "$IOS_CERTIFICATE_P12" ] || [ -z "$IOS_PROVISIONING_PROFILE" ]; then
+            echo "iOS signing secrets not set; building for the simulator."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/ios-signing.keychain-db"
+          password="$(openssl rand -base64 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$IOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+            -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain
+          profile="$HOME/Library/MobileDevice/Provisioning Profiles/profile.mobileprovision"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$profile"
+          jq --arg p "$profile" --arg t "$IOS_TEAM_ID" --arg d "$IOS_DISTRIBUTION" \
+            '.ios.provisioningProfile = $p
+             | if $t != "" then .ios.team = $t else . end
+             | if $d != "" then .ios.distribution = $d else . end' \
+            mygo.json > mygo.json.tmp && mv mygo.json.tmp mygo.json
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build the signed .ipa
+        if: steps.sign.outputs.signed == 'true'
+        run: go tool mygo build -platform ios
+
       - name: Build for the iOS simulator
+        if: steps.sign.outputs.signed != 'true'
         run: go tool mygo build -platform ios/simulator
-      - name: Pack the simulator app
+
+      - name: Pack the iOS app
         run: |
           version="$(jq -r .version mygo.json)"
-          cd build/ios-simulator
-          zip -qr "../../mygo-kgou-${version}-ios-simulator.zip" .
+          if [ "${{ steps.sign.outputs.signed }}" = "true" ]; then
+            name="mygo-kgou-${version}-ios.ipa"
+            cp build/ios-arm64/*.ipa "$name"
+          else
+            name="mygo-kgou-${version}-ios-simulator.zip"
+            (cd build/ios-simulator && zip -qr "../../$name" .)
+          fi
+          echo "IOS_ASSET=$name" >> "$GITHUB_ENV"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-simulator
-          path: build/ios-simulator
+          name: ios
+          path: build/ios-*
           if-no-files-found: error
       - name: Upload to the release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          version="$(jq -r .version mygo.json)"
-          gh release upload "$GITHUB_REF_NAME" "mygo-kgou-${version}-ios-simulator.zip" \
-            --repo "$RELEASE_REPO" --clobber
+        run: gh release upload "$GITHUB_REF_NAME" "$IOS_ASSET" --repo "$RELEASE_REPO" --clobber
 
   android:
     name: Android
