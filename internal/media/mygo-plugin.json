@@ -1,0 +1,18 @@
+{
+  "mobile": {
+    "id": "media",
+    "ios": {
+      "sources": ["ios/*.swift"],
+      "class": "MediaPlugin",
+      "frameworks": ["MediaPlayer", "AVFoundation"]
+    },
+    "android": {
+      "sources": ["android/*.kt"],
+      "class": "MediaPlugin",
+      "permissions": ["POST_NOTIFICATIONS"],
+      "application": [
+        "<receiver android:name=\"dev.mygo.MediaControlReceiver\" android:exported=\"false\" />"
+      ]
+    }
+  }
+}

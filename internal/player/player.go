@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/audio"
 
 	"netease-music-mygo/internal/lyrics"
+	"netease-music-mygo/internal/media"
 	"netease-music-mygo/internal/netease"
 )
 
@@ -95,6 +96,31 @@ func New(post func(func())) *Player {
 		}
 		p.post(func() {})
 	})
+	// A phone's lock screen, notification shade and headphones' buttons:
+	// mygo's NowPlaying shows nothing there, so the app's own plugin shows
+	// what plays and reports what the system's controls ask.
+	media.OnCommand(func(cmd media.Command, pos time.Duration) {
+		switch cmd {
+		case media.Play, media.Pause:
+			if (cmd == media.Play) != p.playing {
+				p.TogglePlay()
+			}
+		case media.Toggle:
+			p.TogglePlay()
+		case media.Next:
+			p.Next()
+		case media.Prev:
+			p.Prev()
+		case media.Seek:
+			p.Seek(pos)
+		case media.Stop:
+			// The app keeps the track it shows, paused where it is: a car's
+			// stop ends the sound, not the session.
+			if p.playing {
+				p.TogglePlay()
+			}
+		}
+	})
 	return p
 }
 
@@ -105,6 +131,7 @@ func (p *Player) sync() {
 	}
 	if p.track == nil {
 		mygo.NowPlaying.Clear()
+		media.Clear()
 		return
 	}
 	state := mygo.PlaybackPaused
@@ -112,6 +139,7 @@ func (p *Player) sync() {
 		state = mygo.PlaybackPlaying
 	}
 	mygo.NowPlaying.SetPlayback(state, p.Position())
+	media.SetPlayback(p.playing, p.Position())
 }
 
 // announce shows the system the track, and its cover once loaded.
@@ -129,6 +157,19 @@ func (p *Player) announce(t *netease.Track, artwork []byte) {
 		Position: p.Position(),
 		State:    state,
 		Commands: mygo.MediaPlay | mygo.MediaPause | mygo.MediaNext | mygo.MediaPrevious | mygo.MediaSeek,
+	})
+	// The same, where a phone shows it: the lock screen and the shade.
+	media.Set(media.Info{
+		Title:    t.Name,
+		Artist:   t.ArtistNames(),
+		Album:    t.Album.Name,
+		Artwork:  artwork,
+		Duration: t.Length(),
+		Position: p.Position(),
+		Playing:  p.playing,
+		CanNext:  len(p.order) > 0,
+		CanPrev:  len(p.order) > 0,
+		CanSeek:  t.Length() > 0,
 	})
 }
 

@@ -115,6 +115,9 @@ type app struct {
 	localPickRef    string // the group of songs picked from those views, "" for all
 	localArtistN    int    // how many artists and albums the library holds
 	localAlbumN     int
+	// localLost says a phone's library lost the folder it read: the system
+	// took its permission back, so the page asks for the folder again.
+	localLost bool
 	// localResetList forgets where the list of songs was scrolled to, for
 	// a view that lists other songs. It is reset before the list builds,
 	// not as it builds: what changes the view is a row of the list itself.

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/png"
@@ -11,9 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"netease-music-mygo/internal/local"
+	"netease-music-mygo/internal/localfolder"
 	"netease-music-mygo/internal/netease"
 	"netease-music-mygo/internal/tag"
 )
@@ -217,5 +220,280 @@ func TestLocalCoverLoads(t *testing.T) {
 	// A cover on the CDN is not one of the library's.
 	if _, ok := localCoverPath("https://p1.music.126.net/x.jpg"); ok {
 		t.Error("a CDN cover was taken for a file's")
+	}
+}
+
+// The songs picked on a phone are copied into the app's folder, each under
+// its own name: picking them again replaces the copies rather than adding
+// more.
+func TestCopyLocalSongsKeepsTheSongs(t *testing.T) {
+	src := t.TempDir()
+	want := map[string]string{
+		"01 晴天.mp3":  "qingtian",
+		"02 江南.flac": "jiangnan",
+	}
+	var paths []string
+	for name, body := range want {
+		path := filepath.Join(src, name)
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+
+	dst := filepath.Join(t.TempDir(), "Music")
+	for round := 1; round <= 2; round++ {
+		n, err := copyLocalSongs(paths, dst)
+		if err != nil || n != len(paths) {
+			t.Fatalf("round %d copied %d songs: %v", round, n, err)
+		}
+	}
+	entries, err := os.ReadDir(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != len(want) {
+		t.Errorf("the folder holds %d files, want %d", len(entries), len(want))
+	}
+	for name, body := range want {
+		got, err := os.ReadFile(filepath.Join(dst, name))
+		if err != nil || string(got) != body {
+			t.Errorf("%s = %q, %v", name, got, err)
+		}
+	}
+}
+
+// Two songs that share a name are two songs: the second is kept under a
+// number rather than replacing the first.
+func TestCopyLocalSongsKeepsNamesApart(t *testing.T) {
+	one, two := t.TempDir(), t.TempDir()
+	first := filepath.Join(one, "track01.mp3")
+	second := filepath.Join(two, "track01.mp3")
+	if err := os.WriteFile(first, []byte("first song"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("a second song"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := t.TempDir()
+	if n, err := copyLocalSongs([]string{first, second}, dst); err != nil || n != 2 {
+		t.Fatalf("copied %d songs: %v", n, err)
+	}
+	for name, want := range map[string]string{
+		"track01.mp3":     "first song",
+		"track01 (2).mp3": "a second song",
+	} {
+		got, err := os.ReadFile(filepath.Join(dst, name))
+		if err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v", name, got, err)
+		}
+	}
+}
+
+// A phone has no folder to pick: its page offers songs instead, which are
+// copied into the app's own folder when picked.
+func TestPhoneLocalAddsSongs(t *testing.T) {
+	// A phone without the folder plugin can only be handed songs.
+	folderInPlace = func() bool { return false }
+	t.Cleanup(func() { folderInPlace = localfolder.Available })
+	src := t.TempDir()
+	song := filepath.Join(src, "晴天.mp3")
+	if err := os.WriteFile(song, []byte("song"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "Music")
+
+	openLocalDialog = func(mygo.OpenDialogOptions) ([]string, error) { return []string{song}, nil }
+	t.Cleanup(func() { openLocalDialog = mygo.Dialog.Open })
+	localMusicDirPath = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { localMusicDirPath = localMusicDir })
+
+	a := phoneApp(t)
+	a.settings = defaultSettings()
+	a.settings.LocalDir = t.TempDir()
+	a.localScanned, a.localScannedDir = time.Now(), a.settings.LocalDir
+	a.localTracks = []netease.Track{{ID: 1, Name: "晴天", Path: song}}
+	a.route = route{page: pageLocal}
+	tt := ui.NewTester(a.view, 390, 844)
+	tt.Frame()
+	if !tt.HasText("添加歌曲") {
+		t.Fatalf("the phone's local page has no way to add songs: %v", tt.Texts())
+	}
+	if tt.HasText("选择文件夹") {
+		t.Errorf("the phone's local page still picks a folder: %v", tt.Texts())
+	}
+
+	if err := tt.Click("添加歌曲"); err != nil {
+		t.Fatal(err)
+	}
+	// The picker and the copy run on their own; the post that scans the
+	// folder needs a window, which the tester has not.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if b, err := os.ReadFile(filepath.Join(dir, "晴天.mp3")); err == nil && string(b) == "song" {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the song picked was not copied into the app's folder")
+}
+
+// The desktop keeps picking a folder, whose songs the library reads where
+// they are.
+func TestDesktopLocalPicksAFolder(t *testing.T) {
+	a := newTestApp()
+	a.settings = defaultSettings()
+	a.settings.LocalDir = t.TempDir()
+	a.localScanned, a.localScannedDir = time.Now(), a.settings.LocalDir
+	a.route = route{page: pageLocal}
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	if !tt.HasText("选择文件夹") || tt.HasText("添加歌曲") {
+		t.Errorf("the desktop's local page does not pick a folder: %v", tt.Texts())
+	}
+}
+
+// A phone with the folder plugin reads a folder of its own storage where it
+// is: the songs stay there, and the folders under it come with them.
+func TestPhoneLocalReadsAFolderInPlace(t *testing.T) {
+	dir := t.TempDir()
+	// The songs sit under folders of their own, as a library of files does.
+	sub := filepath.Join(dir, "周杰伦", "叶惠美")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	localSongs(t, sub)
+
+	folderInPlace = func() bool { return true }
+	t.Cleanup(func() { folderInPlace = localfolder.Available })
+	picked := make(chan string, 1)
+	pickLocalFolder = func(context.Context) (string, error) {
+		picked <- dir
+		return dir, nil
+	}
+	t.Cleanup(func() { pickLocalFolder = localfolder.Pick })
+	// Songs are not picked one by one when a folder is read.
+	openLocalDialog = func(mygo.OpenDialogOptions) ([]string, error) {
+		t.Error("the phone opened the picker of songs")
+		return nil, nil
+	}
+	t.Cleanup(func() { openLocalDialog = mygo.Dialog.Open })
+
+	a := phoneApp(t)
+	a.settings = defaultSettings()
+	a.route = route{page: pageLocal}
+	tt := ui.NewTester(a.view, 390, 844)
+	tt.Frame()
+	if !tt.HasText("选择文件夹") {
+		t.Fatalf("the phone's local page does not pick a folder: %v", tt.Texts())
+	}
+	if err := tt.Click("选择文件夹"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-picked:
+		if got != dir {
+			t.Errorf("the picker asked for %q, not %q", got, dir)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the phone did not ask for a folder")
+	}
+
+	// The songs are read where they are, in folders of their own and all.
+	songs, _, err := local.Scan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(songs) != 2 {
+		t.Errorf("the folder under the one picked holds %d songs, not 2", len(songs))
+	}
+}
+
+// A phone that added songs by copy keeps them: they live in the app's own
+// folder, which needs no permission to be taken back.
+func TestPhoneLocalKeepsTheSongsAdded(t *testing.T) {
+	dir := t.TempDir()
+	a := phoneApp(t)
+	a.settings = defaultSettings()
+	a.settings.LocalDir = dir
+
+	// Nothing was picked in an earlier run, so nothing is taken back.
+	restoreLocalFolder = func(context.Context) (localfolder.Restored, error) {
+		t.Error("the page asked for a folder nothing picked")
+		return localfolder.Restored{}, nil
+	}
+	t.Cleanup(func() { restoreLocalFolder = localfolder.Restore })
+	folderInPlace = func() bool { return true }
+	t.Cleanup(func() { folderInPlace = localfolder.Available })
+
+	a.reopenLocalFolder()
+	time.Sleep(20 * time.Millisecond)
+	if a.settings.LocalDir != dir {
+		t.Errorf("the songs added lost their folder: %q", a.settings.LocalDir)
+	}
+	if a.localLost {
+		t.Error("the page asks for a folder it never had to take back")
+	}
+}
+
+// A phone whose folder the system took the permission to back has none: the
+// page says so, and offers picking it again.
+func TestPhoneLocalLostTheFolder(t *testing.T) {
+	// What the folder the app took back means for the library.
+	if next := localReopened(localfolder.Restored{Saved: true}); !next.lost || !next.forget || next.path != "" {
+		t.Errorf("a lost folder is still read: %+v", next)
+	}
+	if next := localReopened(localfolder.Restored{Path: "/music", Saved: true}); next.path != "/music" || next.lost {
+		t.Errorf("a folder still there is not read: %+v", next)
+	}
+	if next := localReopened(localfolder.Restored{}); next.path != "" || next.lost || next.forget {
+		t.Errorf("a run that never picked a folder has one to lose: %+v", next)
+	}
+
+	a := phoneApp(t)
+	a.settings = defaultSettings()
+	a.settings.LocalDir = t.TempDir()
+	a.settings.LocalPicked = true
+	a.localTracks = []netease.Track{{ID: 1, Name: "晴天"}}
+	// The folder is gone: the library has none, and the page asks for one.
+	a.settings.LocalDir, a.settings.LocalPicked = "", false
+	a.localLost = true
+	if a.localDir() != "" {
+		t.Errorf("a lost folder is still read: %q", a.localDir())
+	}
+	a.scanLocal()
+	if len(a.localTracks) != 0 {
+		t.Errorf("a lost folder still lists %d songs", len(a.localTracks))
+	}
+	a.route = route{page: pageLocal}
+	tt := ui.NewTester(a.view, 390, 844)
+	tt.Frame()
+	if !tt.HasText("重新选择") {
+		t.Errorf("the page does not ask for the folder again: %v", tt.Texts())
+	}
+}
+
+// A run takes the folder picked before back, before the page lists the songs
+// it holds.
+func TestPhoneLocalReopensTheFolder(t *testing.T) {
+	dir := t.TempDir()
+	folderInPlace = func() bool { return true }
+	t.Cleanup(func() { folderInPlace = localfolder.Available })
+	asked := make(chan bool, 1)
+	restoreLocalFolder = func(context.Context) (localfolder.Restored, error) {
+		asked <- true
+		return localfolder.Restored{Path: dir, Saved: true}, nil
+	}
+	t.Cleanup(func() { restoreLocalFolder = localfolder.Restore })
+
+	a := phoneApp(t)
+	a.settings = defaultSettings()
+	a.settings.LocalDir, a.settings.LocalPicked = dir, true
+	a.reopenLocalFolder()
+	select {
+	case <-asked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the run did not take the folder back")
 	}
 }

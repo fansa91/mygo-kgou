@@ -137,6 +137,9 @@ func (a *app) boot() {
 			a.signedIn(prof)
 		})
 	}()
+	// A phone's music folder is read by a permission the system keeps only
+	// for a while, which is taken back here before the page lists its songs.
+	a.reopenLocalFolder()
 }
 
 // signedIn shows what is personal to prof, or to nobody.

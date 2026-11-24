@@ -304,8 +304,17 @@ func (a *app) settingsView(c *ui.Context) {
 		})
 
 		group("本地音乐", func() {
-			row("音乐文件夹", a.localDir(), func() {
-				if ui.Button(c.Key("local-dir"), "选择…").Clicked() {
+			title, desc, pick := "音乐文件夹", a.localDir(), "选择…"
+			if a.localLost {
+				desc = "系统收回了访问权限，需要重新选择"
+			}
+			if a.phone && !folderInPlace() {
+				// A phone without the plugin can only be handed songs, which
+				// the app copies into its own folder.
+				title, desc, pick = "添加歌曲", "把手机里的歌加进本地音乐", "添加"
+			}
+			row(title, desc, func() {
+				if ui.Button(c.Key("local-dir"), pick).Clicked() {
 					a.chooseLocalDir()
 				}
 			})

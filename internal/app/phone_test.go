@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -130,6 +131,57 @@ func TestPhoneSearchTabHasAField(t *testing.T) {
 	// not an empty result list.
 	if !tt.HasText("发现音乐") {
 		t.Errorf("the discover page is missing: %v", tt.Texts())
+	}
+}
+
+// The discover tab ends with the listener's own searches instead of the
+// featured lists the home page already shows. A chip searches at a tap,
+// and the bin clears the history.
+func TestPhoneDiscoverShowsSearchHistory(t *testing.T) {
+	searchResults = func(string, netease.SearchType, int, int) (netease.SearchResult, error) {
+		return netease.SearchResult{}, errors.New("offline")
+	}
+	t.Cleanup(func() { searchResults = netease.SearchPage })
+	hotWords = func() ([]string, error) { return nil, errors.New("offline") }
+	t.Cleanup(func() { hotWords = netease.HotWords })
+
+	a := phoneApp(t)
+	a.settings = defaultSettings()
+	a.settings.SearchHistory = []string{"周杰伦", "富士山下"}
+	a.featured = []netease.Playlist{{ID: 7, Name: "不该出现在发现页"}}
+	tt := ui.NewTester(a.view, 390, 844)
+	tt.Frame()
+	if err := tt.Click("发现"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	for _, want := range []string{"搜索历史", "周杰伦", "富士山下"} {
+		if !tt.HasText(want) {
+			t.Errorf("the discover page does not show %q: %v", want, tt.Texts())
+		}
+	}
+	for _, gone := range []string{"推荐歌单", "不该出现在发现页"} {
+		if tt.HasText(gone) {
+			t.Errorf("the discover page still shows %q: %v", gone, tt.Texts())
+		}
+	}
+
+	if err := tt.Click("清空搜索历史"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(a.settings.SearchHistory) != 0 || !tt.HasText("还没有搜索记录") {
+		t.Errorf("clearing left %q on the page: %v", a.settings.SearchHistory, tt.Texts())
+	}
+
+	a.settings.SearchHistory = []string{"周杰伦", "富士山下"}
+	tt.Frame()
+	if err := tt.Click("富士山下"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.route.page != pageSearch || a.route.query != "富士山下" {
+		t.Fatalf("a history chip did not search: %v", a.route)
 	}
 }
 

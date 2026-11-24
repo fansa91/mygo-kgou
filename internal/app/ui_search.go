@@ -481,13 +481,33 @@ func (a *app) discoverPage(c *ui.Context) {
 			})
 		}
 
-		if len(a.featured) > 0 {
-			a.section(c, "推荐歌单")
-			ui.Grid(c).Columns(a.columns(c, 168)).GapX(20).GapY(28).Children(func() {
-				for i := range a.featured {
-					a.playlistCard(c.Key(fmt.Sprintf("discover-pl-%d", a.featured[i].ID)), &a.featured[i])
+		// On the phone the discover tab ends with what the listener has
+		// searched before, not the featured lists: those already have a
+		// place on the home page.
+		ui.Row(c).AlignItems(ui.Center).Margin(34, 0, 14, 0).Children(func() {
+			ui.Text(c, "搜索历史").FontSize(19).FontWeight(700).LetterSpacing(-0.3).Grow(1)
+			if len(a.settings.SearchHistory) > 0 {
+				if iconButton(c.Key("discover-history-clear"), iconTrash, 15, p.muted, "清空搜索历史").Clicked() {
+					a.clearSearchHistory()
+				}
+			}
+		})
+		if len(a.settings.SearchHistory) > 0 {
+			ui.Row(c).Wrap().Gap(10).Children(func() {
+				for _, h := range a.settings.SearchHistory {
+					word := h
+					label := word
+					if r := []rune(label); len(r) > 14 {
+						label = string(r[:14]) + "…"
+					}
+					if pillButton(c.Key("discover-history-"+word), iconSearch, label, p.hover, p.text).Clicked() {
+						a.live.draft = word
+						a.liveSubmit()
+					}
 				}
 			})
+		} else {
+			ui.Text(c, "还没有搜索记录").FontSize(13).TextColor(p.faint)
 		}
 	})
 }

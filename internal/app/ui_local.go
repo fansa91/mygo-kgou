@@ -1,8 +1,11 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
+	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -13,6 +16,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"netease-music-mygo/internal/local"
+	"netease-music-mygo/internal/localfolder"
 	"netease-music-mygo/internal/netease"
 )
 
@@ -114,8 +118,12 @@ func localFormat(tr *netease.Track) string {
 }
 
 // localDir is where the local library is: the folder chosen, or the one the
-// downloads go to, which is where the app's own songs are.
+// downloads go to, which is where the app's own songs are. A phone whose
+// folder the system took back has none until the listener picks it again.
 func (a *app) localDir() string {
+	if a.localLost {
+		return ""
+	}
 	if dir := strings.TrimSpace(a.settings.LocalDir); dir != "" {
 		return dir
 	}
@@ -138,6 +146,11 @@ func (a *app) scanLocal() {
 		return
 	}
 	dir := a.localDir()
+	if dir == "" {
+		// A phone's folder is gone until the listener picks it again.
+		a.localTracks, a.localSkipped, a.localErr = nil, 0, ""
+		return
+	}
 	a.localLoading, a.localErr = true, ""
 	go func() {
 		tracks, skipped, err := local.Scan(dir)
@@ -303,10 +316,35 @@ func (a *app) localGroupsOf(kind int) []localGroup {
 	return out
 }
 
-// chooseLocalDir asks for the folder of the local library, and scans it.
+// openLocalDialog picks the files or folder of the local library; tests
+// replace it.
+var openLocalDialog = mygo.Dialog.Open
+
+// The folder a phone reads, which lives in the plugin's native code: tests
+// replace them.
+var (
+	pickLocalFolder    = localfolder.Pick
+	restoreLocalFolder = localfolder.Restore
+	forgetLocalFolder  = localfolder.Forget
+	// folderInPlace reports whether a phone reads a folder where it is, its
+	// subfolders and all, rather than copying the songs into the app.
+	folderInPlace = localfolder.Available
+)
+
+// chooseLocalDir asks for the folder of the local library, and scans it. A
+// phone reads a folder of its own storage where it is: the songs stay where
+// the listener keeps them, and the folders under it come with them.
 func (a *app) chooseLocalDir() {
+	if a.phone {
+		if folderInPlace() {
+			a.pickLocalFolder()
+			return
+		}
+		a.addLocalSongs()
+		return
+	}
 	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		paths, err := openLocalDialog(mygo.OpenDialogOptions{
 			Title:             "选择音乐文件夹",
 			DefaultPath:       a.localDir(),
 			ButtonLabel:       "选择",
@@ -317,12 +355,218 @@ func (a *app) chooseLocalDir() {
 			return
 		}
 		dir := paths[0]
-		a.post(func() {
-			a.settings.LocalDir = dir
-			a.changed()
-			a.scanLocal()
-		})
+		a.post(func() { a.readLocalFolder(dir) })
 	}()
+}
+
+// pickLocalFolder has the listener choose a folder of the phone, which the
+// library then reads where it is: nothing is copied, and the folders under it
+// are read too.
+func (a *app) pickLocalFolder() {
+	go func() {
+		path, err := pickLocalFolder(context.Background())
+		if err != nil {
+			a.post(func() { a.toast = "无法读取这个文件夹，请换一个" })
+			return
+		}
+		if path == "" {
+			return // no folder picked
+		}
+		a.post(func() { a.readLocalFolder(path) })
+	}()
+}
+
+// readLocalFolder makes path the folder of the local library, and reads it.
+func (a *app) readLocalFolder(path string) {
+	a.settings.LocalDir = path
+	a.settings.LocalPicked = a.phone
+	a.localLost = false
+	a.changed()
+	a.scanLocal()
+}
+
+// reopenLocalFolder takes back the permission to the folder a phone read in an
+// earlier run, which the system keeps only for a while: without it the songs
+// are there, but unreadable.
+func (a *app) reopenLocalFolder() {
+	if !a.phone || !folderInPlace() || !a.settings.LocalPicked {
+		return
+	}
+	go func() {
+		got, err := restoreLocalFolder(context.Background())
+		if err != nil {
+			return
+		}
+		a.post(func() { a.reopenedLocalFolder(got) })
+	}()
+}
+
+// reopenedLocalFolder takes a phone's library from what the folder picked
+// before is now.
+func (a *app) reopenedLocalFolder(got localfolder.Restored) {
+	next := localReopened(got)
+	if next.forget {
+		go forgetLocalFolder(context.Background())
+	}
+	switch {
+	case next.path != "":
+		a.settings.LocalDir = next.path
+		a.localLost = false
+		a.changed()
+		a.scanLocal()
+	case next.lost:
+		// The folder is gone, or the system took the permission to it back:
+		// the page says so, and offers picking it again.
+		a.settings.LocalDir, a.settings.LocalPicked = "", false
+		a.localLost = true
+		a.changed()
+	}
+}
+
+// localReopened is what a phone's library becomes of the folder the app took
+// back: the path to read, whether the app drops what it kept of the folder,
+// and whether the page has to ask for one.
+type localReopen struct {
+	path   string // the folder to read, "" for none
+	forget bool   // the folder is gone: drop what the app kept of it
+	lost   bool   // the page asks for a folder again
+}
+
+func localReopened(got localfolder.Restored) localReopen {
+	switch {
+	case got.Path != "":
+		return localReopen{path: got.Path}
+	case got.Saved:
+		return localReopen{forget: true, lost: true}
+	}
+	return localReopen{}
+}
+
+// localMusicDir is where songs added on a phone are kept: the app's own
+// folder, which outlives the copies the system's picker hands over.
+func localMusicDir() (string, error) {
+	dir, err := mygo.App.Path(mygo.PathUserData)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "Music"), nil
+}
+
+// localMusicDirPath is localMusicDir; tests replace it.
+var localMusicDirPath = localMusicDir
+
+// addLocalSongs picks songs on a phone and copies them into the app's
+// folder, which the local library then reads. A phone gives an app no folder
+// of another app's: the copies a picker hands over are temporary, and
+// Android's folder picker answers with a tree the dialog cannot read, so
+// with a folder chosen nothing happens. Songs copied here stay.
+func (a *app) addLocalSongs() {
+	go func() {
+		paths, err := openLocalDialog(mygo.OpenDialogOptions{
+			Title:       "添加歌曲",
+			ButtonLabel: "添加",
+			Multiple:    true,
+			Filters: []mygo.FileFilter{{
+				Name:       "音频",
+				Extensions: []string{"mp3", "flac", "ogg", "oga", "opus", "m4a", "mp4", "m4b", "wav"},
+			}},
+		})
+		if err != nil || len(paths) == 0 {
+			return
+		}
+		dir, err := localMusicDirPath()
+		if err != nil {
+			a.post(func() { a.toast = "添加失败，请稍后再试" })
+			return
+		}
+		n, err := copyLocalSongs(paths, dir)
+		a.post(func() { a.localSongsAdded(dir, n, err) })
+	}()
+}
+
+// localSongsAdded makes the folder the songs were copied into the local
+// library's, and says how many came.
+func (a *app) localSongsAdded(dir string, n int, err error) {
+	if err != nil || n == 0 {
+		a.toast = "添加失败，请稍后再试"
+		return
+	}
+	a.settings.LocalDir = dir
+	a.settings.LocalPicked = false // the app's own folder, which needs no permission
+	a.localLost = false
+	a.changed()
+	a.scanLocal()
+	a.toast = fmt.Sprintf("已添加 %d 首", n)
+}
+
+// copyLocalSongs copies the songs picked into dir, each under its own name.
+// A song copied before is left as it is; two songs that share a name are
+// kept apart by a number. Songs that cannot be copied are left out, and the
+// rest still come.
+func copyLocalSongs(paths []string, dir string) (int, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, src := range paths {
+		if copyLocalSongTo(src, dir) == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// copyLocalSongTo copies src into dir under its own name. A copy the same
+// size is taken for the same song, so picking it again adds nothing; a name
+// already taken by a song of another size gets a number.
+func copyLocalSongTo(src, dir string) error {
+	si, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	name := filepath.Base(src)
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	for i := 1; i <= 99; i++ {
+		file := name
+		if i > 1 {
+			file = fmt.Sprintf("%s (%d)%s", stem, i, ext)
+		}
+		dst := filepath.Join(dir, file)
+		di, err := os.Stat(dst)
+		if err != nil {
+			return copyLocalSong(src, dst)
+		}
+		if os.SameFile(si, di) || di.Size() == si.Size() {
+			return nil
+		}
+	}
+	return fmt.Errorf("没有空余的文件名给 %s", name)
+}
+
+// copyLocalSong writes a copy of src at dst: through a file beside it, so a
+// copy cut short leaves no half song in the library.
+func copyLocalSong(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	tmp := dst + ".part"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, dst)
 }
 
 func (a *app) localPage(c *ui.Context) {
@@ -434,16 +678,38 @@ func (a *app) localHeader(c *ui.Context) {
 			return pillButtonSized(c, icon, label, bg, fg, true)
 		}
 	}
+	pickLabel := "选择文件夹"
+	addSongs := a.phone && folderInPlace()
+	if a.phone && !addSongs {
+		// A phone without the plugin can only be handed songs, which the app
+		// copies into its own folder.
+		pickLabel = "添加歌曲"
+	}
+	if a.localLost {
+		pickLabel = "重新选择"
+	}
 	buttons := func() {
-		if pill(c.Key("local-dir"), iconFolder, "选择文件夹", p.hover.Over(p.bg), p.text).Clicked() {
+		if pill(c.Key("local-dir"), iconFolder, pickLabel, p.hover.Over(p.bg), p.text).Clicked() {
 			a.chooseLocalDir()
+		}
+		if addSongs {
+			// Reading a folder where it is does not stop adding a song from
+			// elsewhere, which the app keeps a copy of: an icon, as the row
+			// has no room for another name.
+			if iconButton(c.Key("local-add"), iconPlus, 18, p.text, "添加歌曲").Clicked() {
+				a.addLocalSongs()
+			}
 		}
 		if len(a.localTracks) > 0 {
 			if pill(c.Key("local-play"), iconPlay, "播放全部", p.accent, p.onAccent).Clicked() {
 				songs := a.localShown()
 				a.pl.PlayQueue(songs, firstPlayable(songs))
 			}
-			if pill(c.Key("local-rescan"), iconReload, "重新扫描", p.hover.Over(p.bg), p.text).Clicked() {
+			if a.phone {
+				if iconButton(c.Key("local-rescan"), iconReload, 18, p.text, "重新扫描").Clicked() {
+					a.scanLocal()
+				}
+			} else if pill(c.Key("local-rescan"), iconReload, "重新扫描", p.hover.Over(p.bg), p.text).Clicked() {
 				a.scanLocal()
 			}
 		}
@@ -451,13 +717,13 @@ func (a *app) localHeader(c *ui.Context) {
 	path := func(align ui.Align) {
 		ui.Text(c, a.localDir()).FontSize(12).TextColor(p.faint).SingleLine().Shrink(1).MinWidth(0).TextAlign(align)
 	}
-	// On a phone the three buttons fill the row, so the folder path goes
-	// underneath instead of being squeezed off the edge.
+	// A phone's buttons fill its row: the folder's path would run off the
+	// edge, and an empty library offers the same actions below, so the
+	// header would only say it twice.
 	if a.phone {
-		ui.Column(c).Gap(8).AlignItems(ui.Stretch).Margin(0, 0, 10, 0).Children(func() {
-			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(buttons)
-			path(ui.Start)
-		})
+		if len(a.localTracks) > 0 {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Margin(0, 0, 10, 0).Children(buttons)
+		}
 	} else {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Margin(0, 0, 10, 0).Children(func() {
 			buttons()
@@ -610,6 +876,13 @@ func (a *app) localEmpty(c *ui.Context, filtered bool) {
 			ui.Icon(c, iconReload).Size(32, 32).TextColor(p.faint)
 			ui.Text(c, "正在扫描文件夹…").FontSize(14.5).FontWeight(600)
 			ui.Text(c, a.localDir()).FontSize(12.5).TextColor(p.muted).SingleLine().MaxWidth(420)
+		case a.localLost:
+			ui.Icon(c, iconFolder).Size(32, 32).TextColor(p.faint)
+			ui.Text(c, "文件夹需要重新选择").FontSize(14.5).FontWeight(600)
+			ui.Text(c, "系统收回了这个文件夹的访问权限").FontSize(12.5).TextColor(p.muted)
+			if pillButton(c.Key("local-repick"), iconFolder, "重新选择", p.hover.Over(p.bg), p.text).Clicked() {
+				a.chooseLocalDir()
+			}
 		case a.localErr != "":
 			ui.Icon(c, iconFolder).Size(32, 32).TextColor(p.faint)
 			ui.Text(c, a.localErr).FontSize(14.5).FontWeight(600)
@@ -623,12 +896,30 @@ func (a *app) localEmpty(c *ui.Context, filtered bool) {
 				a.localFilter = ""
 			}
 		default:
+			hint, pick := "把歌曲放进这个文件夹，或者选择一个装着音乐的文件夹", "选择文件夹"
+			switch {
+			case a.localLost:
+				hint, pick = "系统收回了这个文件夹的访问权限，请重新选择一次", "重新选择"
+			case a.phone && folderInPlace():
+				hint = "选一个装着音乐的文件夹，子文件夹也会一起读进来"
+			case a.phone:
+				// A phone without the plugin can only be handed songs, which
+				// the app copies into its own folder.
+				hint, pick = "点「添加歌曲」，把手机里的歌加进来", "添加歌曲"
+			}
 			ui.Icon(c, iconNote).Size(34, 34).TextColor(p.faint)
 			ui.Text(c, "这里还没有歌").FontSize(14.5).FontWeight(600)
-			ui.Text(c, "把歌曲放进这个文件夹，或者选择一个装着音乐的文件夹").FontSize(12.5).TextColor(p.muted)
-			if pillButton(c.Key("local-pick"), iconFolder, "选择文件夹", p.hover.Over(p.bg), p.text).Clicked() {
-				a.chooseLocalDir()
-			}
+			ui.Text(c, hint).FontSize(12.5).TextColor(p.muted).MaxWidth(330).TextAlign(ui.Center)
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				if pillButton(c.Key("local-pick"), iconFolder, pick, p.hover.Over(p.bg), p.text).Clicked() {
+					a.chooseLocalDir()
+				}
+				if a.phone && folderInPlace() {
+					if pillButton(c.Key("local-pick-songs"), iconPlus, "添加歌曲", p.hover.Over(p.bg), p.text).Clicked() {
+						a.addLocalSongs()
+					}
+				}
+			})
 		}
 	})
 }

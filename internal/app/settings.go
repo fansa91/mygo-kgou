@@ -58,6 +58,11 @@ type settings struct {
 	// LocalDir is the folder of the local library, which the page plays
 	// from: empty for the one downloads go to.
 	LocalDir string `json:"localDir,omitempty"`
+	// LocalPicked says the library's folder is one the listener chose on a
+	// phone, which the system lets the app read only with a permission it
+	// has to give again on the next run; songs added by copy live in the
+	// app's own folder, which needs none.
+	LocalPicked bool `json:"localPicked,omitempty"`
 	// StageStyle is how the stage sets its lyrics (stageStyles): empty for
 	// Folia's classic, or the id of another of its visualizers.
 	StageStyle string `json:"stageStyle,omitempty"`

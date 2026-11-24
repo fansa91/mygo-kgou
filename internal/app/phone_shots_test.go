@@ -14,6 +14,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"netease-music-mygo/internal/lyrics"
+	"netease-music-mygo/internal/localfolder"
 	"netease-music-mygo/internal/netease"
 )
 
@@ -220,7 +221,9 @@ func TestPhoneShots(t *testing.T) {
 	tt2.Frame()
 	save("m-search", tt2)
 
-	// The local library's songs view.
+	// The local library's songs view, as the app reads a phone's own folder:
+	// the plugin that does it is in the app, not in this test's build.
+	folderInPlace = func() bool { return true }
 	a3 := richPhoneApp(t)
 	a3.phoneSelectTab(2)
 	tt3 := ui.NewTester(a3.view, 390, 844)
@@ -228,6 +231,7 @@ func TestPhoneShots(t *testing.T) {
 	tt3.Advance(time.Second)
 	tt3.Frame()
 	save("m-local", tt3)
+	folderInPlace = localfolder.Available
 
 	// Now Playing, with the controls that stay visible on a touch screen.
 	a4 := richPhoneApp(t)

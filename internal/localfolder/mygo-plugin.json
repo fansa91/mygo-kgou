@@ -1,0 +1,14 @@
+{
+  "mobile": {
+    "id": "localfolder",
+    "ios": {
+      "sources": ["ios/*.swift"],
+      "class": "LocalFolderPlugin"
+    },
+    "android": {
+      "sources": ["android/*.kt"],
+      "class": "LocalFolderPlugin",
+      "permissions": ["READ_MEDIA_AUDIO", "READ_EXTERNAL_STORAGE"]
+    }
+  }
+}
