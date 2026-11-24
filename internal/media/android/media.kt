@@ -175,7 +175,7 @@ class MediaPlugin : MyGoPlugin {
         b.setStyle(
             Notification.MediaStyle()
                 .setMediaSession(session?.sessionToken)
-                .setShowActionsInCompactView(*Array(compact) { it })
+                .setShowActionsInCompactView(*IntArray(compact) { it })
         )
         mgr.notify(NOTE, b.build())
     }
