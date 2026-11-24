@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/mobile"
 
 	"netease-music-mygo/internal/netease"
 )
@@ -60,6 +61,15 @@ func (a *app) changed() {
 	a.redraw()
 }
 
+// settingSwitch is the system switch on a phone and the desktop's in the
+// settings window. Both write to the setting the caller hands in.
+func (a *app) settingSwitch(c *ui.Context, key any, on *bool, label string, off bool) bool {
+	if a.phone {
+		return mobile.Switch(c.Key(key), on).Disabled(off).Changed()
+	}
+	return ui.Switch(c.Key(key), on).Label(label).Disabled(off).Changed()
+}
+
 func (a *app) settingsView(c *ui.Context) {
 	t := *c.Theme()
 	p := paletteFor(&t)
@@ -71,12 +81,27 @@ func (a *app) settingsView(c *ui.Context) {
 	}
 	s := &a.settings
 
-	ui.Scroll(c).Fill().Padding(24, 28, 32, 28).Gap(8).Children(func() {
+	// A phone gets the system's own grouped rows and switches: their row
+	// height, side padding, separators and touch feedback are the ones the
+	// other phone screens use. The desktop keeps its compact window list.
+	padX := float32(28)
+	if a.phone {
+		padX = 12
+	}
+	ui.Scroll(c).Fill().Padding(24, padX, 32, padX).Gap(8).Children(func() {
 		group := func(title string, rows func()) {
+			if a.phone {
+				mobile.Section(c, title, rows)
+				return
+			}
 			ui.Text(c, title).FontSize(12).FontWeight(600).TextColor(p.muted).Margin(14, 4, 4, 4)
 			ui.Column(c).Radius(12).Background(p.bg).Border(1, p.hairline).Dividers(1, p.hairline).Children(rows)
 		}
 		row := func(label, desc string, control func()) {
+			if a.phone {
+				mobile.ListRow(c, mobile.RowOptions{Title: label, Subtitle: desc, Trailing: control})
+				return
+			}
 			ui.Row(c).Padding(12, 16).Gap(16).AlignItems(ui.Center).MinHeight(48).Children(func() {
 				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
 					ui.Text(c, label).FontSize(13.5).FontWeight(500)
@@ -87,7 +112,6 @@ func (a *app) settingsView(c *ui.Context) {
 				control()
 			})
 		}
-
 		// Only on macOS: elsewhere the icon is always in the notification
 		// area.
 		if runtime.GOOS == "darwin" {
@@ -118,17 +142,17 @@ func (a *app) settingsView(c *ui.Context) {
 		if a.notch != nil {
 			group("刘海播放器", func() {
 				row("显示刘海播放器", "在屏幕顶部的刘海处显示迷你播放器，鼠标悬停即可展开", func() {
-					if ui.Switch(c.Key("notch"), &s.Notch).Label("显示刘海播放器").Changed() {
+					if a.settingSwitch(c, "notch", &s.Notch, "显示刘海播放器", false) {
 						a.changed()
 					}
 				})
 				row("播放时显示实时活动", "在刘海两侧显示封面与音频波形，可能遮挡刘海旁的菜单栏图标", func() {
-					if ui.Switch(c.Key("activity"), &s.NotchActivity).Label("播放时显示实时活动").Disabled(!s.Notch).Changed() {
+					if a.settingSwitch(c, "activity", &s.NotchActivity, "播放时显示实时活动", !s.Notch) {
 						a.changed()
 					}
 				})
 				row("在无刘海的屏幕上常驻显示", "关闭时，将鼠标移至屏幕顶部中央即可唤出，不会遮挡菜单栏", func() {
-					if ui.Switch(c.Key("virtual"), &s.NotchVirtual).Label("在无刘海的屏幕上常驻显示").Disabled(!s.Notch).Changed() {
+					if a.settingSwitch(c, "virtual", &s.NotchVirtual, "在无刘海的屏幕上常驻显示", !s.Notch) {
 						a.changed()
 					}
 				})
@@ -155,12 +179,12 @@ func (a *app) settingsView(c *ui.Context) {
 				}
 			})
 			row("间奏时显示热评", "前奏、间奏与尾奏时，歌词处换成这首歌的热门评论", func() {
-				if ui.Switch(c.Key("hot-comments"), &s.HotComments).Label("间奏时显示热评").Changed() {
+				if a.settingSwitch(c, "hot-comments", &s.HotComments, "间奏时显示热评", false) {
 					a.changed()
 				}
 			})
 			row("酷狗概念版", "以酷狗概念版的身份播放：概念版会员可听会员歌曲，账号旁显示概念版标识；切换后需要重新登录", func() {
-				if ui.Switch(c.Key("concept"), &s.Concept).Label("酷狗概念版").Changed() {
+				if a.settingSwitch(c, "concept", &s.Concept, "酷狗概念版", false) {
 					a.changed()
 					// The mode decides how everything is signed from here
 					// on, including the code the sign-in dialog asks for.
@@ -175,7 +199,7 @@ func (a *app) settingsView(c *ui.Context) {
 				}
 			})
 			row("音量均衡", "按酷狗音乐测得的响度调整每首歌的音量，让歌曲听起来一样响", func() {
-				if ui.Switch(c.Key("normalize"), &s.Normalize).Label("音量均衡").Changed() {
+				if a.settingSwitch(c, "normalize", &s.Normalize, "音量均衡", false) {
 					a.pl.SetVolume(a.volume)
 					a.changed()
 				}
@@ -310,12 +334,12 @@ func (a *app) settingsView(c *ui.Context) {
 
 		group("实验性功能", func() {
 			row("进度条烟雾特效", "播放时进度条化作拖着烟雾的光点，随音乐起伏；会多用一些电量", func() {
-				if ui.Switch(c.Key("smoke"), &s.Smoke).Label("进度条烟雾特效").Changed() {
+				if a.settingSwitch(c, "smoke", &s.Smoke, "进度条烟雾特效", false) {
 					a.changed()
 				}
 			})
 			row("烟雾背景", "播放页的背景化作封面色调的烟雾，缓缓升起，随低音起伏；仍在打磨，会多用一些电量", func() {
-				if ui.Switch(c.Key("fog"), &s.Fog).Label("烟雾背景").Changed() {
+				if a.settingSwitch(c, "fog", &s.Fog, "烟雾背景", false) {
 					a.changed()
 				}
 			})
@@ -353,13 +377,13 @@ func (a *app) settingsView(c *ui.Context) {
 				}
 				row("自动检查更新", desc, func() {
 					on := updateChecks()
-					if ui.Switch(c.Key("update-checks"), &on).Label("自动检查更新").Changed() {
+					if a.settingSwitch(c, "update-checks", &on, "自动检查更新", false) {
 						setUpdateChecks(on)
 					}
 				})
 				row("自动下载并安装", "在后台下载新版本，下次打开时生效", func() {
 					on := updateDownloads()
-					if ui.Switch(c.Key("update-downloads"), &on).Label("自动下载并安装").Disabled(!updateChecks()).Changed() {
+					if a.settingSwitch(c, "update-downloads", &on, "自动下载并安装", !updateChecks()) {
 						setUpdateDownloads(on)
 					}
 				})

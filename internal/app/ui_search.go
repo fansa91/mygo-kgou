@@ -375,7 +375,14 @@ func (a *app) searchHeader(c *ui.Context, d *searchData) {
 	// query does not mean going back to the sidebar's field.
 	in := ui.TextInput(c.Key("search-live"), &a.live.draft).
 		Placeholder("搜索歌曲、歌手、听书").Label("搜索").FontSize(14).
-		Width(400).Height(36).Margin(0, 0, 14, 0)
+		Height(36).Margin(0, 0, 14, 0)
+	// A fixed field runs off a phone's screen; on a desktop it keeps the
+	// width the sidebar was laid out for.
+	if a.phone {
+		in.FillWidth()
+	} else {
+		in.Width(400)
+	}
 	if in.Changed() {
 		a.liveTyped()
 	}
@@ -441,7 +448,8 @@ func (a *app) discoverPage(c *ui.Context) {
 	a.scrollPage(c, func() {
 		ui.Text(c, "发现音乐").FontSize(26).FontWeight(800).LetterSpacing(-0.6).Margin(0, 0, 16, 0)
 		in := ui.TextInput(c.Key("discover-field"), &a.live.draft).
-			Placeholder("搜索歌曲、歌手、听书").Label("搜索").FontSize(14).Width(400).Height(40).Margin(0, 0, 24, 0)
+			Placeholder("搜索歌曲、歌手、听书").Label("搜索").FontSize(14).
+			Height(40).Margin(0, 0, 24, 0).FillWidth()
 		if in.Changed() {
 			a.liveTyped()
 		}

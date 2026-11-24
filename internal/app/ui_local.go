@@ -427,16 +427,23 @@ func (a *app) localHeader(c *ui.Context) {
 		}
 	}
 	a.heading(c, "本地音乐", sub)
+	pill := pillButton
+	if a.phone {
+		// Three full-size pills do not fit a phone's content width.
+		pill = func(c *ui.Context, icon *ui.SVG, label string, bg, fg ui.Color) ui.Element {
+			return pillButtonSized(c, icon, label, bg, fg, true)
+		}
+	}
 	buttons := func() {
-		if pillButton(c.Key("local-dir"), iconFolder, "选择文件夹", p.hover.Over(p.bg), p.text).Clicked() {
+		if pill(c.Key("local-dir"), iconFolder, "选择文件夹", p.hover.Over(p.bg), p.text).Clicked() {
 			a.chooseLocalDir()
 		}
 		if len(a.localTracks) > 0 {
-			if pillButton(c.Key("local-play"), iconPlay, "播放全部", p.accent, p.onAccent).Clicked() {
+			if pill(c.Key("local-play"), iconPlay, "播放全部", p.accent, p.onAccent).Clicked() {
 				songs := a.localShown()
 				a.pl.PlayQueue(songs, firstPlayable(songs))
 			}
-			if pillButton(c.Key("local-rescan"), iconReload, "重新扫描", p.hover.Over(p.bg), p.text).Clicked() {
+			if pill(c.Key("local-rescan"), iconReload, "重新扫描", p.hover.Over(p.bg), p.text).Clicked() {
 				a.scanLocal()
 			}
 		}
@@ -448,7 +455,7 @@ func (a *app) localHeader(c *ui.Context) {
 	// underneath instead of being squeezed off the edge.
 	if a.phone {
 		ui.Column(c).Gap(8).AlignItems(ui.Stretch).Margin(0, 0, 10, 0).Children(func() {
-			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(buttons)
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(buttons)
 			path(ui.Start)
 		})
 	} else {

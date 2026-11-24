@@ -137,7 +137,7 @@ func (a *app) captionSettings(row func(label, desc string, control func()), c *u
 	m := &a.captions.model
 	s := &a.settings
 	row("听书字幕", "播放节目时在本机转写语音，生成可滚动的字幕；转写时会多用一些电量", func() {
-		if ui.Switch(c.Key("captions"), &s.Captions).Label("听书字幕").Disabled(!a.modelReady()).Changed() {
+		if a.settingSwitch(c, "captions", &s.Captions, "听书字幕", !a.modelReady()) {
 			a.changed()
 			a.syncCaptions()
 		}

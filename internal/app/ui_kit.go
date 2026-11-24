@@ -123,7 +123,17 @@ func vipTag(c *ui.Context, ink ui.Color, label string) ui.Element {
 }
 
 func pillButton(c *ui.Context, icon *ui.SVG, label string, bg, fg ui.Color) ui.Element {
-	b := ui.ButtonBase(c).Height(36).PaddingX(18).Gap(8).Radius(999).AlignItems(ui.Center).TextColor(fg)
+	return pillButtonSized(c, icon, label, bg, fg, false)
+}
+
+// pillButtonSized is pillButton with a compact form for the rows of buttons
+// a narrow screen has to fit: three full-size pills run off a phone.
+func pillButtonSized(c *ui.Context, icon *ui.SVG, label string, bg, fg ui.Color, compact bool) ui.Element {
+	padX, gap, font := float32(18), float32(8), float32(14)
+	if compact {
+		padX, gap, font = 10, 6, 13
+	}
+	b := ui.ButtonBase(c).Height(36).PaddingX(padX).Gap(gap).Radius(999).AlignItems(ui.Center).TextColor(fg)
 	fill := bg
 	if b.Hovered() {
 		fill = bg.Mix(ui.RGB(255, 255, 255), 0.12)
@@ -136,9 +146,13 @@ func pillButton(c *ui.Context, icon *ui.SVG, label string, bg, fg ui.Color) ui.E
 	b.AnimatePose(pose, ui.Snappy)
 	b.Children(func() {
 		if icon != nil {
-			ui.Icon(c, icon).Size(14, 14)
+			size := float32(14)
+			if compact {
+				size = 13
+			}
+			ui.Icon(c, icon).Size(size, size)
 		}
-		ui.Text(c, label).FontSize(14).FontWeight(600).SingleLine()
+		ui.Text(c, label).FontSize(font).FontWeight(600).SingleLine()
 	})
 	return b
 }
