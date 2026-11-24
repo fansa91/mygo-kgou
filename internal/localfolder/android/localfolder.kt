@@ -7,13 +7,16 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
 /**
  * A folder of music the app reads where it is: the picker names a folder of
- * the phone's storage, whose path the app keeps, and the songs are read with
- * the audio permission the app asks for, never copied.
+ * the phone's storage, and the app keeps the system's permission to that
+ * document tree. Android 11 and later do not let an app list a shared folder
+ * by path, so the Go side asks this plugin for the files with "list"; the
+ * files themselves are opened by path, which the audio permission allows.
  */
 class LocalFolderPlugin : MyGoPlugin {
     private var picking: PluginReply? = null
@@ -50,42 +53,69 @@ class LocalFolderPlugin : MyGoPlugin {
                         PluginHost.context.contentResolver
                             .takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     } catch (_: Exception) {
-                        // The grant is for this run only: the path is kept, so
-                        // the songs are still there next time, permission
-                        // being what the media permission covers.
+                        // A provider may refuse to keep the grant; the folder
+                        // still works for this run, and restore asks again.
                     }
                     val path = pathOf(uri)
                     if (path == null) {
                         r.failure(PluginFailure("NoPath", "the app can read only the phone's own storage"))
                         return@startForResult
                     }
-                    prefs.edit().putString("path", path).apply()
+                    prefs.edit().putString("path", path).putString("uri", uri.toString()).apply()
                     r.success(JSONObject().put("path", path).put("saved", true))
                 }
             }
             "restore" -> {
                 val path = prefs.getString("path", "") ?: ""
+                val tree = prefs.getString("uri", "") ?: ""
                 if (path.isEmpty()) {
                     reply.success(JSONObject().put("path", "").put("saved", false))
                     return
                 }
-                // A folder that is gone, or that the system no longer lets the
-                // app read, is no folder to go back to: the user picks again.
-                if (!readable(path)) {
-                    prefs.edit().remove("path").apply()
+                // A folder picked by an earlier build has no tree saved: it
+                // has to be picked again, since its path alone cannot be
+                // listed. The app's own folder has no tree and is ours.
+                val gone = if (tree.isEmpty()) !readable(path) else !granted(tree) && !readable(path)
+                if (gone) {
+                    prefs.edit().remove("path").remove("uri").apply()
                     reply.success(JSONObject().put("path", "").put("saved", true))
-                    return
+                } else {
+                    reply.success(JSONObject().put("path", path).put("saved", true))
                 }
-                reply.success(JSONObject().put("path", path).put("saved", true))
+            }
+            "list" -> {
+                val tree = prefs.getString("uri", "") ?: ""
+                val paths = JSONArray()
+                if (tree.isNotEmpty() && granted(tree)) {
+                    try {
+                        val uri = Uri.parse(tree)
+                        walk(uri, DocumentsContract.getTreeDocumentId(uri), paths, 0)
+                    } catch (_: Exception) {
+                        // A permission the system took back: no files to read.
+                    }
+                }
+                reply.success(JSONObject().put("paths", paths))
             }
             "forget" -> {
-                prefs.edit().remove("path").apply()
+                prefs.edit().remove("path").remove("uri").apply()
                 reply.success(JSONObject().put("path", "").put("saved", false))
             }
             else -> reply.failure(PluginFailure("NoMethod", method))
         }
     }
 
+    /** Whether the system's lasting permission to this tree is still held. */
+    private fun granted(tree: String): Boolean = try {
+        val uri = Uri.parse(tree)
+        PluginHost.context.contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isReadPermission
+        }
+    } catch (_: Exception) {
+        false
+    }
+
+    /** A directory that is ours to read without the document tree, as the
+     *  app's own folder is. */
     private fun readable(path: String): Boolean = try {
         val dir = File(path)
         dir.isDirectory && dir.list() != null
@@ -93,17 +123,47 @@ class LocalFolderPlugin : MyGoPlugin {
         false
     }
 
-    /**
-     * The path a picked tree names. The system's document ids start with the
-     * volume, as in "primary:Music", which names a folder of the storage the
-     * phone shows to its apps.
-     */
-    private fun pathOf(uri: Uri): String? {
-        val id = try {
-            DocumentsContract.getTreeDocumentId(uri)
-        } catch (_: Exception) {
-            return null
+    /** The files under one folder of the tree, and under its folders too.
+     *  Java's File cannot list shared storage on Android 11+, but the tree
+     *  the user picked can be listed with DocumentsContract. */
+    private fun walk(tree: Uri, id: String, out: JSONArray, depth: Int) {
+        if (depth > 32) return
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, id)
+        val columns = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+        )
+        val cursor = PluginHost.context.contentResolver.query(children, columns, null, null, null) ?: return
+        cursor.use { c ->
+            val idAt = c.getColumnIndex(columns[0])
+            val nameAt = c.getColumnIndex(columns[1])
+            val mimeAt = c.getColumnIndex(columns[2])
+            while (c.moveToNext()) {
+                val child = if (idAt >= 0) c.getString(idAt) ?: "" else ""
+                if (child.isEmpty()) continue
+                val mime = if (mimeAt >= 0) c.getString(mimeAt) ?: "" else ""
+                val name = if (nameAt >= 0) c.getString(nameAt) ?: "" else ""
+                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    if (!name.startsWith(".")) walk(tree, child, out, depth + 1)
+                    continue
+                }
+                if (name.startsWith(".")) continue
+                pathOfDocumentId(child)?.let { out.put(it) }
+            }
         }
+    }
+
+    /** The path a picked tree or document id names. The system's ids start
+     *  with the volume, as in "primary:Music", which is a folder of the
+     *  storage the phone shows to its apps. */
+    private fun pathOf(uri: Uri): String? = try {
+        pathOfDocumentId(DocumentsContract.getTreeDocumentId(uri))
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun pathOfDocumentId(id: String): String? {
         val colon = id.indexOf(':')
         val volume = if (colon < 0) id else id.substring(0, colon)
         val rel = if (colon < 0) "" else id.substring(colon + 1)

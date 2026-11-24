@@ -394,7 +394,13 @@ func (a *app) searchHeader(c *ui.Context, d *searchData) {
 		for i, k := range searchKinds {
 			labels[i] = k.label
 		}
-		if segmented(c.Key("kind"), &at, labels...) {
+		changed := false
+		if a.phone {
+			changed = a.segmentedPhone(c.Key("kind"), &at, labels...)
+		} else {
+			changed = segmented(c.Key("kind"), &at, labels...)
+		}
+		if changed {
 			r.kind = searchKinds[at].kind
 			a.show(r)
 		}

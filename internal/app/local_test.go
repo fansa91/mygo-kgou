@@ -3,11 +3,13 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -495,5 +497,52 @@ func TestPhoneLocalReopensTheFolder(t *testing.T) {
 	case <-asked:
 	case <-time.After(2 * time.Second):
 		t.Fatal("the run did not take the folder back")
+	}
+}
+
+// Android hands the app a document tree it cannot walk by path: the native
+// plugin lists the files, and Go reads those files where they are.
+func TestAndroidLocalReadsTheDocumentTree(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "周杰伦", "叶惠美")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	localSongs(t, sub)
+
+	scansDocumentTree = true
+	t.Cleanup(func() { scansDocumentTree = runtime.GOOS == "android" })
+	called := false
+	listLocalFolder = func(context.Context) ([]string, error) {
+		called = true
+		return []string{
+			filepath.Join(sub, "01 晴天.mp3"),
+			filepath.Join(sub, "02 江南.flac"),
+			filepath.Join(dir, "cover.jpg"),
+		}, nil
+	}
+	t.Cleanup(func() { listLocalFolder = localfolder.List })
+
+	a := phoneApp(t)
+	a.settings = defaultSettings()
+	a.settings.LocalDir = dir
+	a.settings.LocalPicked = true
+	tracks, _, err := a.readLocal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Error("the document tree was not asked for its files")
+	}
+	if len(tracks) != 2 {
+		t.Errorf("read %d songs from the tree: %v", len(tracks), tracks)
+	}
+
+	// A tree that cannot be listed is an error, not an empty library.
+	listLocalFolder = func(context.Context) ([]string, error) {
+		return nil, errors.New("permission gone")
+	}
+	if _, _, err := a.readLocal(dir); err == nil {
+		t.Error("a folder that cannot be listed read as an empty library")
 	}
 }

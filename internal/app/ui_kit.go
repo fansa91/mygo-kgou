@@ -350,6 +350,34 @@ func segmented(c *ui.Context, selected *int, labels ...string) bool {
 	return *selected != before
 }
 
+// segmentedPhone is the same choice as segmented, drawn as separate pills
+// with a finger-sized target: the small AppKit segments are hard to hit on
+// a phone, where a tap has to land in one of them.
+func (a *app) segmentedPhone(c *ui.Context, selected *int, labels ...string) bool {
+	p := a.pal
+	before := *selected
+	ui.Row(c).Gap(6).Wrap().Children(func() {
+		for i, label := range labels {
+			b := ui.ButtonBase(c.Key("segment-" + label)).Height(40).PaddingX(12).Radius(999).
+				AlignItems(ui.Center).FocusRing(false).Label(label)
+			bg, fg := p.hover, p.text
+			if i == *selected {
+				bg, fg = p.accent, p.onAccent
+			} else if b.Hovered() {
+				bg = p.press
+			}
+			b.Background(bg).TextColor(fg)
+			b.Children(func() {
+				ui.Text(c, label).FontSize(13).FontWeight(600).SingleLine()
+			})
+			if b.Clicked() {
+				*selected = i
+			}
+		}
+	})
+	return *selected != before
+}
+
 // paged is how a list loaded a page at a time is coming along.
 type paged struct {
 	loaded  bool // whether the first page came

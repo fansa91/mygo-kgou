@@ -193,3 +193,34 @@ func TestYearOf(t *testing.T) {
 		}
 	}
 }
+
+// ScanFiles reads a list of files that a caller gathered itself, as the
+// Android document tree does: the folders under the picked one come with it.
+func TestScanFilesReadsWhatItIsGiven(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "rock")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, "../player/testdata/seek.mp3", filepath.Join(sub, "a.mp3"))
+	copyFile(t, "../player/testdata/seek.flac", filepath.Join(dir, "b.flac"))
+	if err := os.WriteFile(filepath.Join(dir, "d.m4a"), []byte("not a song"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{
+		filepath.Join(sub, "a.mp3"),
+		filepath.Join(dir, "b.flac"),
+		filepath.Join(dir, "d.m4a"),
+		filepath.Join(dir, "notes.txt"),
+	}
+	tracks, skipped, err := ScanFiles(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 2 {
+		t.Errorf("read %d songs: %v", len(tracks), tracks)
+	}
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1", skipped)
+	}
+}

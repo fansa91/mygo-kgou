@@ -21,18 +21,27 @@ var phoneTabRoot = [4]route{
 }
 
 // phoneTabOf says which destination a page belongs to, so that a page
-// opened from anywhere and a system back still light the right tab.
+// opened from anywhere and a system back still light the right tab. The four
+// tabs' own pages have a fixed home; every other page — an album, an artist,
+// a playlist — belongs to the tab it was opened from. That matters as much
+// for the bar's highlight as for the check in phoneView: an album opened
+// from a search result must read as 发现, not as 首页, or the bar treats the
+// page change as a tap on another tab.
 func (a *app) phoneTabOf(r route) int {
 	switch r.page {
-	case pageSearch, pageUser, pagePodcast, pagePodcasts:
-		return 1
-	case pageLocal, pageCloud, pageDownloads:
-		return 2
-	case pageMine, pageSettings:
-		return 3
-	default:
+	case pageHome:
 		return 0
+	case pageSearch:
+		return 1
+	case pageLocal:
+		return 2
+	case pageMine:
+		return 3
 	}
+	if tab, ok := a.phoneRouteTab[r]; ok {
+		return tab
+	}
+	return a.phoneTab
 }
 
 // isPhoneTabRoot reports whether r is the first page of one of the bottom
@@ -128,15 +137,20 @@ func (a *app) phoneView(c *ui.Context, npOpen, npSettled bool) {
 		return
 	}
 	// The bar writes the destination it was tapped into selected; following
-	// it is what opens that destination's page.
+	// it is what opens that destination's page. Compare with the tab this
+	// frame started on, not with the route now: a button on the page can
+	// open another tab's page while the frame is being built, and that is
+	// not a tap on the bar. Comparing with the new route would send the
+	// listener straight back to where they were.
 	selected := a.phoneTabOf(a.route)
+	startedOn := selected
 	ui.Column(c).Fill().Children(func() {
 		a.phoneTop(c)
 		a.phonePages(c)
 		a.phonePlayer(c)
 		mobile.BottomBar(c, &selected, phoneBarButtons...)
 	})
-	if selected != a.phoneTabOf(a.route) {
+	if selected != startedOn {
 		a.phoneSelectTab(selected)
 	}
 }

@@ -145,6 +145,10 @@ type app struct {
 	// states are kept for each route: going back to a playlist finds the
 	// row it left, rather than starting it from the top again.
 	pageStates map[route]pageState
+	// Which tab of the bottom bar each page was opened from. Detail pages
+	// have no tab of their own: an album reached from a search result keeps
+	// 发现 lit, the same album reached from the local page keeps 乐库 lit.
+	phoneRouteTab map[route]int
 
 	// The phone shell: which tab of the bottom bar shows, and whether it
 	// is laid out as a phone. The desktop keeps its sidebar and windows.

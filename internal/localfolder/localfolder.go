@@ -36,8 +36,9 @@ type Restored struct {
 
 // answer is what the native code replies with.
 type answer struct {
-	Path  string `json:"path"`
-	Saved bool   `json:"saved"`
+	Path  string   `json:"path"`
+	Saved bool     `json:"saved"`
+	Paths []string `json:"paths"`
 }
 
 // Pick asks the user for a folder, and returns its path, or "" when they
@@ -58,6 +59,17 @@ func Restore(ctx context.Context) (Restored, error) {
 		return Restored{}, err
 	}
 	return Restored{Path: a.Path, Saved: a.Saved}, nil
+}
+
+// List names the files under the folder picked, in the folders under it too.
+// Android's shared storage cannot be walked by path: the app has a permission
+// to the document tree instead, which only the native side can read.
+func List(ctx context.Context) ([]string, error) {
+	var a answer
+	if err := mygo.Native(plugin).Call(ctx, "list", nil, &a); err != nil {
+		return nil, err
+	}
+	return a.Paths, nil
 }
 
 // Forget drops the folder the app kept, and the system's permission to it.

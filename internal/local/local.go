@@ -155,9 +155,36 @@ func Scan(dir string) (tracks []Track, skipped int, err error) {
 	if err != nil {
 		return nil, skipped, err
 	}
-	tracks, failed := readAll(paths)
-	skipped += failed
-	// The pictures beside the songs: the ones whose own file holds none.
+	tracks, failed, err := scanPaths(paths)
+	return tracks, skipped + failed, err
+}
+
+// ScanFiles reads the songs in paths, for a caller that cannot list a folder
+// itself: on Android the app gets the files of a folder it was given through
+// the system's document tree, which a Go directory walk cannot see. The files
+// are still read where they are — nothing is copied.
+func ScanFiles(paths []string) (tracks []Track, skipped int, err error) {
+	files := make([]string, 0, len(paths))
+	for _, path := range paths {
+		name := filepath.Base(path)
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		if playable(name) {
+			files = append(files, path)
+		} else if audioName(name) {
+			skipped++
+		}
+	}
+	tracks, failed, err := scanPaths(files)
+	return tracks, skipped + failed, err
+}
+
+// scanPaths reads the tags of a list of songs and puts them in the library's
+// order. Sidecar pictures are looked up beside the files; on a phone's shared
+// storage they may not be readable, and the song's own cover still is.
+func scanPaths(paths []string) (tracks []Track, skipped int, err error) {
+	tracks, skipped = readAll(paths)
 	covers := map[string]bool{}
 	for i := range tracks {
 		if tracks[i].Covered {

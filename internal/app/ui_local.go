@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -153,17 +154,33 @@ func (a *app) scanLocal() {
 	}
 	a.localLoading, a.localErr = true, ""
 	go func() {
-		tracks, skipped, err := local.Scan(dir)
+		tracks, skipped, err := a.readLocal(dir)
 		a.post(func() {
 			a.localLoading = false
 			if err != nil {
-				a.localErr = "无法读取这个文件夹"
+				a.localErr = "无法读取这个文件夹，请重新选择"
 				return
 			}
 			a.setLocal(tracks, skipped)
 			a.localScannedDir = dir
 		})
 	}()
+}
+
+// readLocal reads the songs of a folder, off the UI thread. Android 11 and
+// later hide shared folders from a Go directory walk: there the native plugin
+// lists the document tree the listener picked, and Go reads the files it
+// names where they are. The other platforms, and the app's own folder, are
+// walked as always.
+func (a *app) readLocal(dir string) ([]local.Track, int, error) {
+	if scansDocumentTree && a.settings.LocalPicked {
+		paths, err := listLocalFolder(context.Background())
+		if err != nil {
+			return nil, 0, err
+		}
+		return local.ScanFiles(paths)
+	}
+	return local.Scan(dir)
 }
 
 // setLocal makes tracks the local library, as a scan of it found them.
@@ -326,6 +343,10 @@ var (
 	pickLocalFolder    = localfolder.Pick
 	restoreLocalFolder = localfolder.Restore
 	forgetLocalFolder  = localfolder.Forget
+	listLocalFolder    = localfolder.List
+	// scansDocumentTree says the folder is read through the system's document
+	// tree rather than by walking its path, as on Android. Tests set it.
+	scansDocumentTree = runtime.GOOS == "android"
 	// folderInPlace reports whether a phone reads a folder where it is, its
 	// subfolders and all, rather than copying the songs into the app.
 	folderInPlace = localfolder.Available

@@ -114,6 +114,15 @@ func (a *app) open(r route) {
 	if r == a.route {
 		return
 	}
+	// Remember which tab this page was opened from. Detail pages have no
+	// tab of their own, so the bar keeps the tab the listener came from lit
+	// rather than sending them back there on the next frame.
+	if a.phone {
+		if a.phoneRouteTab == nil {
+			a.phoneRouteTab = map[route]int{}
+		}
+		a.phoneRouteTab[r] = a.phoneTabOf(a.route)
+	}
 	// Which way the page comes from: a step forward, unless the tab bar
 	// sent the listener to another tab, which is no step at all, or back
 	// to the first page of the tab they are in, which is a return.

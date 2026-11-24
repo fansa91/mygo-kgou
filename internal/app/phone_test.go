@@ -219,3 +219,164 @@ func TestPhoneFrames(t *testing.T) {
 		out.Close()
 	}
 }
+
+// A button on a page can open a page of another tab while the frame is
+// being built: the bar's selection was read before that, and must not be
+// taken for a tap on the bar that sends the listener back.
+func TestPhonePageTapDoesNotBounceBackToTheTab(t *testing.T) {
+	a := phoneApp(t)
+	a.profile = &netease.Profile{UserID: 42, Nickname: "听歌的人"}
+	tt := ui.NewTester(a.view, 390, 844)
+	tt.Frame()
+	if err := tt.Click("我的"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click("排行榜"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.route.page != pageCharts {
+		t.Errorf("the 排行榜 entry bounced back to page %v", a.route.page)
+	}
+
+	// A playlist card of the same page opens its playlist, not the tab.
+	a.phoneSelectTab(3)
+	a.users[42] = &userData{playlists: []netease.Playlist{{ID: 7, Name: "我的歌单"}}}
+	tt.Frame()
+	if err := tt.Click("我的歌单"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.route.page != pagePlaylist || a.route.id != 7 {
+		t.Errorf("the playlist card opened %+v", a.route)
+	}
+}
+
+// The search tabs are finger-sized pills on a phone: a tap on one searches
+// that kind next.
+func TestPhoneSearchKindPillsWork(t *testing.T) {
+	searchResults = func(string, netease.SearchType, int, int) (netease.SearchResult, error) {
+		return netease.SearchResult{}, nil
+	}
+	t.Cleanup(func() { searchResults = netease.SearchPage })
+	a := phoneApp(t)
+	r := route{page: pageSearch, query: "周杰伦", kind: netease.SearchSongs}
+	a.route = r
+	d := &searchData{}
+	d.page.loaded = true
+	d.res.Songs = []netease.Track{{ID: 1, Name: "晴天"}}
+	a.searches[r] = d
+	tt := ui.NewTester(a.view, 390, 844)
+	tt.Frame()
+	for _, c := range []struct {
+		label string
+		kind  netease.SearchType
+	}{
+		{"歌手", netease.SearchArtists},
+		{"专辑", netease.SearchAlbums},
+		{"歌单", netease.SearchPlaylists},
+	} {
+		if err := tt.Click(c.label); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if a.route.kind != c.kind {
+			t.Errorf("after %s: kind = %v, want %v", c.label, a.route.kind, c.kind)
+		}
+		a.searches[a.route] = d
+	}
+}
+
+// Tapping an album in the search results opens the album and stays there:
+// a detail page has no tab of its own, so the bar must not read the change
+// as a tap on another tab and send the listener back to the results. It
+// keeps the tab the album was opened from lit.
+func TestPhoneAlbumFromSearchStaysOpen(t *testing.T) {
+	albumDetail = func(id int64) (*netease.AlbumProfile, error) {
+		return &netease.AlbumProfile{Album: netease.Album{ID: 99, Name: "测试专辑"}}, nil
+	}
+	t.Cleanup(func() { albumDetail = netease.AlbumDetail })
+
+	a := phoneApp(t)
+	r := route{page: pageSearch, query: "周杰伦", kind: netease.SearchAlbums}
+	d := &searchData{}
+	d.page.loaded = true
+	d.res.Albums = []netease.AlbumProfile{{Album: netease.Album{ID: 99, Name: "测试专辑"}}}
+	a.searches[r] = d
+	a.open(r)
+
+	tt := ui.NewTester(a.view, 390, 844)
+	tt.Frame()
+	if err := tt.Click("测试专辑"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Frame()
+	if a.route != (route{page: pageAlbum, id: 99}) {
+		t.Errorf("the album card bounced back to %+v", a.route)
+	}
+	if got := a.phoneTabOf(a.route); got != 1 {
+		t.Errorf("the album's tab = %d, want 1 (发现)", got)
+	}
+}
+
+// The same album reached from another tab keeps that tab lit, so the bar
+// never claims the listener left for the tab the page was first seen in.
+func TestPhoneDetailKeepsTheTabItWasOpenedFrom(t *testing.T) {
+	a := phoneApp(t)
+	a.phoneSelectTab(2) // 乐库
+	album := route{page: pageAlbum, id: 7}
+	a.open(album)
+	if got := a.phoneTabOf(album); got != 2 {
+		t.Errorf("album opened from 乐库: tab = %d, want 2", got)
+	}
+
+	// A search result reached from 发现 keeps 发现, not the album's first tab.
+	a.phoneSelectTab(1)
+	other := route{page: pageSearch, query: "测试", kind: netease.SearchSongs}
+	a.open(other)
+	a.open(route{page: pageArtist, id: 8})
+	if got := a.phoneTabOf(a.route); got != 1 {
+		t.Errorf("artist opened from 发现: tab = %d, want 1", got)
+	}
+}
+
+// Every tile of the phone's account home opens the page it names, including
+// the ones that belong to another tab.
+func TestPhoneMineEntriesOpenTheirPages(t *testing.T) {
+	for _, c := range []struct {
+		label string
+		page  pageKind
+	}{
+		{"每日推荐", pageDaily},
+		{"排行榜", pageCharts},
+		{"我喜欢的", pageUser},
+		{"下载", pageDownloads},
+		{"本地音乐", pageLocal},
+		{"音乐云盘", pageCloud},
+		{"听书", pagePodcasts},
+		{"我的主页", pageUser},
+		{"私人 FM", pageFM},
+		{"设置", pageSettings},
+	} {
+		t.Run(c.label, func(t *testing.T) {
+			a := phoneApp(t)
+			a.profile = &netease.Profile{UserID: 42, Nickname: "听歌的人"}
+			a.liked = map[int64]bool{1: true}
+			tt := ui.NewTester(a.view, 390, 844)
+			tt.Frame()
+			if err := tt.Click("我的"); err != nil {
+				t.Fatal(err)
+			}
+			tt.Frame()
+			if err := tt.Click(c.label); err != nil {
+				t.Fatal(err)
+			}
+			tt.Frame()
+			if a.route.page != c.page {
+				t.Errorf("%s opened page %v, want %v", c.label, a.route.page, c.page)
+			}
+		})
+	}
+}
