@@ -156,6 +156,15 @@ type app struct {
 	selected     map[int64]*netease.Track
 	selectAnchor int // -1 for none
 
+	// A song's actions, on a phone: a long press opens them as a sheet
+	// from the bottom, instead of the desktop's big system menu.
+	songSheet struct {
+		open        bool
+		askPlaylist bool // the "添加到歌单" second sheet is showing
+		track       netease.Track
+		pid         int64
+	}
+
 	mineCollapsed, savedCollapsed bool
 
 	query       string

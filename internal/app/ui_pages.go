@@ -36,6 +36,26 @@ func (a *app) section(c *ui.Context, title string) ui.Element {
 	return ui.Text(c, title).FontSize(19).FontWeight(700).LetterSpacing(-0.3).Margin(34, 0, 14, 0)
 }
 
+// otherThan returns ls without the playlists already shown above it. The
+// day's picks and the featured lists come from two services and can name
+// the same playlist, which would put one card twice on the same page.
+func otherThan(ls, shown []netease.Playlist) []netease.Playlist {
+	if len(shown) == 0 {
+		return ls
+	}
+	ids := make(map[int64]bool, len(shown))
+	for i := range shown {
+		ids[shown[i].ID] = true
+	}
+	out := make([]netease.Playlist, 0, len(ls))
+	for i := range ls {
+		if !ids[ls[i].ID] {
+			out = append(out, ls[i])
+		}
+	}
+	return out
+}
+
 func (a *app) homePage(c *ui.Context) {
 	loading := len(a.featured) == 0 && len(a.charts) == 0
 	if loading && !a.homeLoading {
@@ -58,11 +78,12 @@ func (a *app) homePage(c *ui.Context) {
 		}
 		a.dailyCard(c, now)
 
-		if len(a.recPlaylists) > 0 {
+		recShown := a.recPlaylists[:min(len(a.recPlaylists), a.columns(c, 168)*2)]
+		if len(recShown) > 0 {
 			a.section(c, "今日为你推荐")
 			ui.Grid(c).Columns(a.columns(c, 168)).GapX(20).GapY(28).Children(func() {
-				for i := range a.recPlaylists[:min(len(a.recPlaylists), a.columns(c, 168)*2)] {
-					a.playlistCard(c.Key(a.recPlaylists[i].ID), &a.recPlaylists[i])
+				for i := range recShown {
+					a.playlistCard(c.Key(recShown[i].ID), &recShown[i])
 				}
 			})
 		}
@@ -77,9 +98,10 @@ func (a *app) homePage(c *ui.Context) {
 		})
 
 		a.section(c, "推荐歌单")
+		featured := otherThan(a.featured, recShown)
 		ui.Grid(c).Columns(a.columns(c, 168)).GapX(20).GapY(28).Children(func() {
-			for i := range a.featured {
-				a.playlistCard(c.Key(a.featured[i].ID), &a.featured[i])
+			for i := range featured {
+				a.playlistCard(c.Key(featured[i].ID), &featured[i])
 			}
 		})
 	})
@@ -443,8 +465,8 @@ func (a *app) trackRows(c *ui.Context, tracks []netease.Track, covers bool, head
 		playing := cur != nil && cur.ID == tr.ID
 		selecting := a.selecting
 		checked := selecting && a.selected[tr.ID] != nil
-		row := ui.ButtonBase(c.Key(tr.ID)).Height(54).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
-			ContextMenu(a.songItems(tr, pid))
+		row := ui.ButtonBase(c.Key(tr.ID)).Height(54).PaddingX(12).Gap(14).Radius(10).AlignItems(ui.Center).FocusRing(false).Label(tr.Name)
+		a.songContext(row, tr, pid)
 		hovered := row.Hovered()
 		bg := ui.Transparent
 		switch {

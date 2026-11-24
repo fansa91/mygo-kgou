@@ -355,8 +355,8 @@ func (a *app) dailyPicks(c *ui.Context, songs []netease.Track, ours bool) {
 	ui.Column(c.Key("picks")).Width(236).Shrink(0).Gap(2).Children(func() {
 		for i := range min(3, len(songs)) {
 			tr := &songs[i]
-			row := ui.ButtonBase(c.Key(tr.ID)).Row().Gap(12).Padding(7, 12).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name).
-				ContextMenu(a.songItems(tr, 0))
+			row := ui.ButtonBase(c.Key(tr.ID)).Row().Gap(12).Padding(7, 12).Radius(12).AlignItems(ui.Center).FocusRing(false).Label(tr.Name)
+			a.songContext(row, tr, 0)
 			bg := white.Alpha(0)
 			if row.Hovered() {
 				bg = white.Alpha(0.1)
@@ -485,6 +485,48 @@ func (a *app) dailyPage(c *ui.Context) {
 	s := a.pageShimmer(c)
 	header := func(c *ui.Context) {
 		p := a.pal
+		// The desktop sets a large sleeve beside the title. On a phone that
+		// leaves the title a narrow strip, and the two buttons run off the
+		// edge, so the sleeve keeps the detail pages' size and the buttons
+		// get a row of their own.
+		if a.phone {
+			cover := a.detailCoverSize()
+			ui.Row(c).Gap(a.detailGap()).AlignItems(ui.Center).Padding(0, 0, 14, 0).Children(func() {
+				a.dailyArt(c, now, cover)
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(6).Children(func() {
+					ui.Text(c, "每日推荐").FontSize(11.5).FontWeight(600).TextColor(p.accent)
+					ui.Text(c, "每日歌曲推荐").FontSize(a.detailNameSize()).FontWeight(800).
+						LetterSpacing(-0.4).MaxLines(2).LineHeight(1.25)
+					if loading {
+						s.text(c, 13, 1.3).FillWidth()
+					} else {
+						ui.Text(c, fmt.Sprintf("%d 首 · %s", len(songs), a.dailyBlurb())).
+							FontSize(12).TextColor(p.muted).LineHeight(1.4)
+					}
+				})
+			})
+			buttons := func() {
+				if loading {
+					s.bone(c, 18).Size(112, 36)
+					s.bone(c, 18).Size(112, 36)
+					return
+				}
+				if pillButton(c.Key("play"), iconPlay, "播放全部", p.accent, p.onAccent).Clicked() {
+					if a.pl.Shuffle() {
+						a.pl.ToggleShuffle()
+					}
+					a.pl.PlayQueue(songs, firstPlayable(songs))
+				}
+				if pillButton(c.Key("shuffle"), iconShuffle, "随机播放", p.hover.Over(p.bg), p.text).Clicked() {
+					if !a.pl.Shuffle() {
+						a.pl.ToggleShuffle()
+					}
+					a.pl.PlayQueue(songs, firstPlayable(songs))
+				}
+			}
+			ui.Row(c).Gap(10).Margin(0, 0, 12, 0).Children(buttons)
+			return
+		}
 		ui.Row(c).Gap(28).AlignItems(ui.End).Padding(0, 0, 26, 0).Children(func() {
 			a.dailyArt(c, now, 212)
 			ui.Column(c).Gap(8).Children(func() {

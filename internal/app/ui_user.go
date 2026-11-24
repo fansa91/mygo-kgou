@@ -284,6 +284,8 @@ func (a *app) minePage(c *ui.Context) {
 		}
 		a.section(c, "我的音乐")
 		ui.Grid(c).Columns(4).Gap(10).Children(func() {
+			entry("mine-daily", iconDaily, "每日推荐", func() { a.open(route{page: pageDaily}) })
+			entry("mine-charts", iconCharts, "排行榜", func() { a.open(route{page: pageCharts}) })
 			entry("mine-liked", iconHeart, "我喜欢的", func() {
 				if len(a.liked) == 0 {
 					a.toast = "还没有喜欢的歌曲"
@@ -309,7 +311,15 @@ func (a *app) minePage(c *ui.Context) {
 		default:
 			ui.Grid(c).Columns(a.columns(c, 168)).GapX(20).GapY(28).Children(func() {
 				for i := range d.playlists {
-					a.playlistCard(c.Key(d.playlists[i].ID), &d.playlists[i])
+					a.playlistCard(c.Key(fmt.Sprintf("mine-%d", d.playlists[i].ID)), &d.playlists[i])
+				}
+			})
+		}
+		if len(a.saved) > 0 {
+			a.section(c, "收藏的歌单")
+			ui.Grid(c).Columns(a.columns(c, 168)).GapX(20).GapY(28).Children(func() {
+				for i := range a.saved {
+					a.playlistCard(c.Key(fmt.Sprintf("saved-%d", a.saved[i].ID)), &a.saved[i])
 				}
 			})
 		}
